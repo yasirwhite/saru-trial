@@ -1,0 +1,19 @@
+{
+  "name": "saru-ig-concierge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI concierge for a brand's Instagram DMs — agent loop, Shopify tools over MCP, comment→DM opener workflow",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "dev": "node --watch --env-file-if-exists=.env src/server.js",
+    "smoke": "node scripts/smoke.js",
+    "demo:reset": "node scripts/reset.js",
+    "meta:subscribe": "node --env-file-if-exists=.env scripts/subscribe.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "express": "^4.21.2",
+    "openai": "^4.104.0"
+  }
+}
