@@ -88,6 +88,14 @@ const mockDriver = {
       return say('here\'s what i found — short version: ' + text.replace(/\s+/g, ' ').slice(0, 180));
     }
 
+    // Gated thread, first reply after the engagement opener: help, then make
+    // the offer — mirrors the openai driver's gate rules deterministically.
+    const gateMatch = /unlocks ONLY when they drop their (phone number|email)/.exec(messages[0]?.content || '');
+    if (gateMatch) {
+      const f = gateMatch[1] === 'email' ? 'email' : 'number';
+      return say(`good q — it runs true to size. btw drop your ${f} here and i'll send back 20% off`);
+    }
+
     // Round 1: pick a tool from the user's intent. A cart ask starts with a
     // catalog search (we need a variant id) and chains to update_cart above.
     if (/discount|code|deal/.test(lastUser) && find('issue_discount')) return call(find('issue_discount'), {});
@@ -102,8 +110,12 @@ const mockDriver = {
   },
   // Deterministic but grounded — built from the actually-fetched facts, so
   // smoke tests can assert personalization without an API key.
-  async composeOpener({ profile, commentText, discount }) {
+  async composeOpener({ profile, commentText, discount, gate, featured, percent }) {
     const who = profile?.name?.split(' ')[0]?.toLowerCase() || `@${profile?.username || 'there'}`;
+    if (gate && !discount) {
+      // Engagement-only opener: no offer, no ask — the promo comes later in the dm.
+      return `hey ${who}! ai intern here 😅 saw your comment ("${(commentText || '').slice(0, 60)}") — that one's been moving fast fr. what's the occasion?`;
+    }
     const codeLine = discount ? ` made you a code — ${discount.code}, ${discount.percent}% off this week.` : '';
     return `hey ${who}! ai intern here 😅 saw your comment ("${(commentText || '').slice(0, 60)}") — love that.${codeLine} what are you shopping for today?`;
   },

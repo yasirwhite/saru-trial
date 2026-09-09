@@ -47,11 +47,16 @@ const dm = (mid, text) => ({
   entry: [{ id: 'sim-brand-account', time: Math.floor(Date.now() / 1000), messaging: [{ sender: { id: 'sim-user-maya.runs' }, recipient: { id: 'sim-brand-account' }, timestamp: Date.now(), message: { mid, text } }] }],
 });
 
-for (const f of [DB, DB + '-wal', DB + '-shm']) fs.rmSync(f, { force: true });
+const DB2 = 'data/smoke-gate.db';
+const BASE2 = 'http://127.0.0.1:3998';
+let server2 = null;
+
+for (const f of [DB, DB + '-wal', DB + '-shm', DB2, DB2 + '-wal', DB2 + '-shm']) fs.rmSync(f, { force: true });
 const server = spawn(process.execPath, ['src/server.js'], {
   env: {
     ...process.env, PORT: String(PORT), DB_PATH: DB, TRANSPORT: 'sim', LLM_DRIVER: 'mock',
     META_APP_SECRET: SECRET, META_VERIFY_TOKEN: 'smoke-verify', IG_ACCESS_TOKEN: '', OPENAI_API_KEY: '',
+    ADMIN_KEY: 'smoke-admin-key',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -72,6 +77,13 @@ try {
   const chBad = await fetch(`${BASE}/webhooks/instagram?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=x`);
   ok(chBad.status === 403, 'GET handshake rejects a wrong verify token');
   ok((await postWebhook(dm('mid-sig', 'hi'), { badSig: true })) === 401, 'forged signature → 401, payload untrusted');
+  // The operator door sends real DMs from the brand account — a wrong key must
+  // never get past it, whatever the portal on the other side believes.
+  const opBadKey = await fetch(`${BASE}/operator/send`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ igsid: 'sim-user-maya.runs', text: 'hi from the portal', key: 'not-the-admin-key' }),
+  });
+  ok(opBadKey.status === 401, 'POST /operator/send with a wrong admin key → 401');
 
   console.log('\nflagship: comment → personalized private reply');
   await postWebhook(comment('c-1', 'obsessed with this roast 😍'));
@@ -130,6 +142,84 @@ try {
   ok(s.traces.some((t) => t.kind === 'tool' && /polic/.test(t.text)), 'the model called the policies tool (live MCP)');
   ok(s.outbound.length > n, 'policy question got a reply');
 
+  console.log('\nlive-walkthrough workflows: phone gate + hydrated link');
+  server2 = spawn(process.execPath, ['src/server.js'], {
+    env: {
+      ...process.env, PORT: '3998', DB_PATH: DB2, TRANSPORT: 'sim', LLM_DRIVER: 'mock',
+      META_APP_SECRET: SECRET, META_VERIFY_TOKEN: 'smoke-verify', IG_ACCESS_TOKEN: '', OPENAI_API_KEY: '',
+      PHONE_GATE: '1', FEATURED_PRODUCT: 'hoodie',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  server2.stderr.on('data', (d) => process.stdout.write('    ! ' + d));
+  let up2 = false;
+  for (let i = 0; i < 120 && !up2; i++) { try { up2 = (await fetch(`${BASE2}/health`)).ok; } catch { await sleep(250); } }
+  if (!up2) throw new Error('gated server did not boot');
+  const post2 = async (body) => {
+    const raw = Buffer.from(JSON.stringify(body));
+    return (await fetch(`${BASE2}/webhooks/instagram`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': sign(raw) }, body: raw,
+    })).status;
+  };
+  const state2 = async () => (await fetch(`${BASE2}/sim/state`)).json();
+  const outboundAfter2 = async (n, ms = 30000) => {
+    const start = Date.now();
+    while (Date.now() - start < ms) {
+      const s = await state2();
+      if (s.outbound.length > n) return s;
+      await sleep(300);
+    }
+    return state2();
+  };
+
+  await post2(comment('g-0', 'another test'));
+  await sleep(2000);
+  ok((await state2()).outbound.length === 0, 'no-intent comment ("another test") triggers NO dm');
+
+  await post2(comment('g-1', 'need this hoodie fr'));
+  let g = await outboundAfter2(0);
+  const gOpener = g.outbound.find((o) => o.kind === 'private_reply');
+  ok(!!gOpener, 'gated opener sent');
+  ok(!/number|email|code|% ?off|discount/i.test(gOpener?.text || ''), 'opener is pure engagement — no ask, no offer (anti-botted)');
+  ok(!/[A-Z]+-[A-Z0-9]{4}/.test(gOpener?.text || ''), 'opener holds the code back (gate armed)');
+
+  // Multi-bubble replies land one at a time under natural pacing — poll until
+  // the outbound count stops growing before asserting on the tail.
+  const settled2 = async (n) => {
+    let s = await outboundAfter2(n);
+    // natural pacing can hold a long link bubble ~7s — stay until 9s of quiet
+    for (let quiet = 0; quiet < 23; ) {
+      await sleep(400);
+      const next = await state2();
+      if (next.outbound.length === s.outbound.length) quiet++;
+      else { quiet = 0; s = next; }
+    }
+    return s;
+  };
+
+  let gn = (await state2()).outbound.length;
+  await post2(dm('g-mid-0', 'does it run big?'));
+  g = await settled2(gn);
+  ok(/number/i.test(g.outbound[g.outbound.length - 1]?.text || ''), 'first reply engages THEN makes the offer (ask arrives in message two)');
+
+  gn = g.outbound.length;
+  await post2(dm('g-mid-1', '555 019'));
+  g = await settled2(gn);
+  ok(/again|off/i.test(g.outbound[g.outbound.length - 1]?.text || ''), 'junk number → polite re-ask, no code');
+
+  gn = g.outbound.length;
+  await post2(dm('g-mid-2', '(310) 555-0142'));
+  g = await settled2(gn);
+  const gTail = g.outbound.slice(gn).map((o) => o.text).join('\n');
+  ok(/[A-Z]+-[A-Z0-9]{4}/.test(gTail), 'valid number → code delivered');
+  ok(/\/cart\/(c\/[\w-]+\?[^\s]*|(\d+:1\?))[^\s]*discount=/.test(gTail), 'hydrated checkout link: featured item + code attached');
+  ok(g.traces.some((t) => t.kind === 'gate' && /\+1310555\d{4}/.test(t.text)), 'number validated and stored as E.164');
+
+  gn = g.outbound.length;
+  await post2(dm('g-mid-3', 'wait can i get another code?'));
+  g = await outboundAfter2(gn);
+  ok(g.outbound.length > gn, 'post-capture DMs still flow to the agent');
+
   console.log(`\n${failed === 0 ? 'ALL GREEN' : 'FAILURES'} — ${passed} passed, ${failed} failed`);
   process.exitCode = failed === 0 ? 0 : 1;
 } catch (err) {
@@ -137,4 +227,5 @@ try {
   process.exitCode = 1;
 } finally {
   server.kill();
+  if (server2) server2.kill();
 }

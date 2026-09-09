@@ -74,8 +74,24 @@ export async function buildToolset(ctx) {
     trace('error', `MCP tools/list failed — agent runs with native tools only: ${err.message}`);
   }
 
-  const defs = [...mcpDefs, ...NATIVE_TOOLS];
+  // Some storefront MCP servers under-advertise tools/list (the saru-dev-lab
+  // store lists only policies) while still serving the standard suite — append
+  // the known Shopify tools discovery missed; a truly-absent one fails soft.
+  const KNOWN = [
+    ['search_catalog', 'Search the store catalog for products.', { type: 'object', properties: { query: { type: 'string' }, context: { type: 'string' } }, required: ['query'] }],
+    ['get_product_details', 'Get full details and variants for one product.', { type: 'object', properties: { product_id: { type: 'string' } }, required: ['product_id'] }],
+    ['update_cart', 'Create or update a cart; returns the cart with its checkout_url.', { type: 'object', properties: { cart_id: { type: 'string' }, add_items: { type: 'array', items: { type: 'object', properties: { product_variant_id: { type: 'string' }, quantity: { type: 'number' } }, required: ['product_variant_id', 'quantity'] } } } }],
+    ['get_cart', 'Fetch an existing cart by id.', { type: 'object', properties: { cart_id: { type: 'string' } }, required: ['cart_id'] }],
+  ];
   const mcpNames = new Set(mcpDefs.map((d) => d.function.name));
+  for (const [name, description, parameters] of KNOWN) {
+    if (mcpDefs.length && !mcpNames.has(name)) {
+      mcpDefs.push({ type: 'function', function: { name, description, parameters } });
+      mcpNames.add(name);
+    }
+  }
+
+  const defs = [...mcpDefs, ...NATIVE_TOOLS];
 
   // Variant ids are capabilities, not strings: the model may only cart an id
   // it received from a tool THIS turn.

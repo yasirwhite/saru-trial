@@ -4,16 +4,22 @@ import { getDriver } from './llm.js';
 import { systemPrompt } from './prompts.js';
 import { toBubbles } from './shorten.js';
 import { buildToolset } from '../shopify/tools.js';
-import { getThread, history, appendMessage } from '../store/db.js';
+import { getThread, history, appendMessage, getCollected } from '../store/db.js';
+import { config } from '../config.js';
 import { trace } from '../sim/trace.js';
 
 const MAX_ROUNDS = 6; // enough for search → details → cart → link, with slack
 
 export async function runAgentTurn(igsid) {
   const thread = getThread(igsid);
+  const awaiting = getCollected(igsid, '_awaiting');
+  const flow = {
+    captured: getCollected(igsid, 'phone') || getCollected(igsid, 'email'),
+    awaitingField: (awaiting === 'phone' || awaiting === 'email') && !getCollected(igsid, awaiting) ? awaiting : null,
+  };
   const toolset = await buildToolset({ igsid, username: thread?.username });
   const messages = [
-    { role: 'system', content: systemPrompt(thread) },
+    { role: 'system', content: systemPrompt(thread, flow) },
     ...history(igsid),
   ];
 

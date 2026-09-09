@@ -3,6 +3,8 @@
 // live-mode switches come from .env (see .env.example).
 
 const int = (v, d) => (v && !Number.isNaN(parseInt(v, 10)) ? parseInt(v, 10) : d);
+const mcpUrl = process.env.SHOPIFY_MCP_URL || 'https://gymshark.myshopify.com/api/mcp';
+const hostOf = (u) => { try { return new URL(u).host; } catch { return ''; } };
 const bool = (v, d) => (v === undefined || v === '' ? d : v === 'true' || v === '1');
 const range = (v, d) => {
   if (!v) return d;
@@ -34,14 +36,32 @@ export const config = {
 
   // Shopify storefront MCP (public, unauthenticated). Point at any store —
   // picked for a deep in-stock catalog so demos don't dead-end on availability.
-  mcpUrl: process.env.SHOPIFY_MCP_URL || 'https://gymshark.myshopify.com/api/mcp',
+  mcpUrl,
   brandName: process.env.BRAND_NAME || 'Gymshark (demo)',
+
+  // Live-walkthrough workflows. W1: the comment opener offers the promo but the
+  // code unlocks only with a phone number. W2: a valid number back → confirm →
+  // code + hydrated checkout link for the featured "sell it out" product.
+  phoneGate: bool(process.env.PHONE_GATE, false),
+  // Only comments with shopping intent trigger the opener ("another test" doesn't).
+  commentIntentFilter: bool(process.env.COMMENT_INTENT_FILTER, true),
+  featuredQuery: process.env.FEATURED_PRODUCT || '',
+  // Numeric variant id pin — skips MCP search (new products can lag the index).
+  featuredVariantId: (process.env.FEATURED_VARIANT_ID || '').replace(/\D/g, '') || '',
+  // A pre-created store code shared by everyone; when empty, per-customer codes
+  // are minted (real ones once the admin token is set, simulated otherwise).
+  promoCode: process.env.PROMO_CODE || '',
+  storeDomain: process.env.STORE_DOMAIN || hostOf(mcpUrl),
 
   // Opener timing, seconds, as 'min-max'. '0' fires immediately (the brief's
   // "fires fast", and the demo default).
   openerDelayS: range(process.env.OPENER_DELAY_S, [0, 0]),
   // Free-text brand instructions folded into the opener prompt (voice, musts).
   openerBrandNotes: process.env.OPENER_BRAND_NOTES || '',
+  // Prompt-variant hook for the eval harness: a path to a markdown file whose
+  // text is appended to BOTH the system prompt and the opener prompt, under a
+  // marked "brand experiment notes" block. Empty (the default) changes nothing.
+  promptNotesFile: process.env.PROMPT_NOTES_FILE || '',
 
   // Public comment nudge.
   publicNudge: process.env.PUBLIC_NUDGE || 'non_followers',
@@ -54,5 +74,14 @@ export const config = {
   shopifyAdminStore: process.env.SHOPIFY_ADMIN_STORE || '',
   shopifyAdminToken: process.env.SHOPIFY_ADMIN_TOKEN || '',
 
+  // Protects the /admin dashboard on the public tunnel. Empty = local dev only.
+  adminKey: process.env.ADMIN_KEY || '',
+
   dbPath: process.env.DB_PATH || 'data/concierge.db',
+
+  // Kosha (Supabase) mirror. Empty = off: SQLite stays the only store and the
+  // concierge behaves exactly as it does today. The brand is resolved by SELECT
+  // at boot; this only says WHICH brand's instagram inbox to bind to.
+  databaseUrl: process.env.DATABASE_URL || '',
+  supabaseBrandId: process.env.SUPABASE_BRAND_ID || 'saru-dev-lab',
 };

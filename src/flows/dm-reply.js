@@ -4,6 +4,8 @@ import { config } from '../config.js';
 import { upsertThread, getThread, touchUserMessage, appendMessage, resetThread } from '../store/db.js';
 import { fetchProfile } from '../instagram/profile.js';
 import { runAgentTurn } from '../agent/loop.js';
+import { handlePhoneReply } from './phone-gate.js';
+import { conversationMode } from './workflow-settings.js';
 import { sendDm, sendSenderAction } from '../instagram/send.js';
 import { trace } from '../sim/trace.js';
 
@@ -47,13 +49,28 @@ export async function handleInboundDm({ igsid, text, at }) {
     }
   }
 
+  // Human takeover. An operator holding this thread in the Kosha portal means
+  // the concierge answers nothing at all — no gate reply, no agent turn, not
+  // even a typing indicator, which would otherwise promise a bot reply that
+  // never comes. The inbound message is already stored AND mirrored above, so
+  // the portal transcript the operator is reading stays complete; their reply
+  // comes back through POST /operator/send.
+  if (conversationMode(igsid) === 'human') {
+    trace('mode', `human mode for ${igsid} — inbound stored, no auto-reply`);
+    return;
+  }
+
   const pacing = config.replyPacing === 'natural';
   if (pacing) {
     await sendSenderAction(igsid, 'mark_seen');
     await sendSenderAction(igsid, 'typing_on'); // typing shows while the model composes
   }
 
-  const bubbles = await runAgentTurn(igsid);
+  // Workflow 2 first: if we're waiting on a phone number, the gate handles the
+  // message deterministically (validate → confirm → code + hydrated link).
+  let bubbles = await handlePhoneReply(igsid, text);
+  if (bubbles) appendMessage(igsid, 'assistant', bubbles.join('\n'));
+  else bubbles = await runAgentTurn(igsid);
   for (const b of bubbles) {
     if (!withinMessagingWindow(igsid)) {
       trace('window', `24h messaging window closed for ${igsid} — send suppressed`);

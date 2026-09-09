@@ -1,6 +1,27 @@
 // Every word the model is instructed with lives in this file — read it top to
 // bottom and you know the concierge's entire personality and its rails.
+import fs from 'node:fs';
 import { config } from '../config.js';
+
+// Prompt-variant hook (evals). PROMPT_NOTES_FILE points at a markdown file of
+// extra instructions; its text is read ONCE at module load and appended to both
+// prompts below. Unset or empty file → NOTES is '' and every prompt string is
+// byte-identical to what it was before this hook existed.
+const NOTES = (() => {
+  if (!config.promptNotesFile) return '';
+  let text = '';
+  try {
+    text = fs.readFileSync(config.promptNotesFile, 'utf8').trim();
+  } catch (err) {
+    // A missing variant file must never change the concierge's behavior in a
+    // way nobody notices — say so loudly, then run exactly as baseline.
+    console.error(`[prompts] PROMPT_NOTES_FILE unreadable (${err.message}) — running with no experiment notes`);
+    return '';
+  }
+  if (!text) return '';
+  console.log(`[prompts] experiment notes loaded from ${config.promptNotesFile} (${text.length} chars)`);
+  return `\n\nbrand experiment notes (follow these too):\n${text}`;
+})();
 
 // The voice: the brand's ai intern texting like an actual person texts.
 const VOICE = `
@@ -59,23 +80,34 @@ closing the sale:
 - discounts: the code's terms are fixed by the brand. you can remind them to
   enter it at checkout; you cannot change percent or expiry.`;
 
-export function systemPrompt(thread) {
+export function systemPrompt(thread, flow = {}) {
   const facts = [
     thread?.name && `name: ${thread.name}`,
     thread?.username && `instagram: @${thread.username}`,
     Number.isFinite(thread?.follower_count) && `followers: ${thread.follower_count}`,
     thread?.is_follower != null && (thread.is_follower ? 'follows the brand' : 'does not follow the brand yet'),
+    flow.captured && `their contact (validated): ${flow.captured} — their code is already delivered; never re-ask for contact info`,
   ].filter(Boolean).join('\n');
+  const gateRules = flow.awaitingField
+    ? `\nactive promotion — how to play it: a ${config.discountPercent}% code${config.featuredQuery ? ` for the ${config.featuredQuery}` : ''} exists,
+but it unlocks ONLY when they drop their ${flow.awaitingField === 'phone' ? 'phone number' : 'email'} in the chat — and it has
+NOT been offered yet. engage like a person FIRST: answer what they asked, give
+them something genuinely useful. then, once you've done that (usually your
+first or second reply), work the offer in naturally — their ${flow.awaitingField === 'phone' ? 'number' : 'email'} here and
+the code comes right back. never open with the offer before helping them,
+never push it more than once if they don't bite, never send or promise a code
+before their ${flow.awaitingField === 'phone' ? 'number' : 'email'} arrives, and never call issue_discount_code while waiting.`
+    : '';
   return `you run ${config.brandName}'s instagram dms.
 ${VOICE}
-${RULES}
+${RULES}${gateRules}
 
 what you know about this customer:
-${facts || '(nothing yet beyond this conversation)'}`;
+${facts || '(nothing yet beyond this conversation)'}${NOTES}`;
 }
 
 // The one-shot opener.
-export function openerPrompt({ profile, commentText, postCaption, postImageUrl, discount }) {
+export function openerPrompt({ profile, commentText, postCaption, postImageUrl, discount, gate, featured, percent }) {
   const p = profile || {};
   const known = [
     p.username && `their handle: @${p.username}`,
@@ -89,7 +121,8 @@ export function openerPrompt({ profile, commentText, postCaption, postImageUrl, 
 
   return `someone just commented on ${config.brandName}'s instagram post and you
 get to send exactly ONE dm to open a conversation. (one message only — no
-multi-bubble here; the api gives you a single shot.)
+multi-bubble here, NO line breaks anywhere in your reply; the api gives you a
+single shot and anything after the first line is thrown away.)
 ${VOICE}
 
 write that one opener. requirements:
@@ -101,14 +134,28 @@ write that one opener. requirements:
   people actually use for the product, use that.
 - avoid generic gratitude ("appreciate the support") — it's the last resort
   when there's truly nothing specific to react to.
-- 2 short sentences max, then at most one genuine question that helps you help
-  them. the question carries the conversation, so tie it to their comment.
-- ${discount ? 'work the code in naturally — made for them, 20% off, expires in a week.' : 'no discount this time — lead with warmth and curiosity.'}
+- 2 short sentences max, and END ON A STATEMENT by default — a first message
+  does NOT need a question, and interview-style questions ("what's your skin
+  type") read botted. the model to beat: "hey maya, the overnight cloud mask
+  gives major glow while you sleep. glad you liked it." ask a question only
+  when their comment literally asked something back.
+- extra banned words for openers: "vibe", "vibes", "absolute", "obsessed",
+  "bestie", "queen" — casual, not caricature.
+- ${discount
+    ? 'work the code in naturally — made for them, 20% off, expires in a week.'
+    : gate
+      ? `IMPORTANT: no offer, no discount, no code, and NO asking for contact
+  info in this first message — a first-message pitch reads botted and kills the
+  thread. this message is pure engagement: react to their comment like the
+  person who runs the page and drop one genuinely useful detail (glow, texture,
+  restock, how people use it). statement close. the promo comes later, in the
+  conversation, after they reply.`
+      : 'no discount this time — lead with warmth.'}
 - never claim to be human ("i'm the ai intern here" or similar belongs in the
   intro), no manufactured urgency beyond the real expiry.
 ${config.openerBrandNotes ? `\nbrand's own instructions for openers (follow them):\n${config.openerBrandNotes}\n` : ''}
 facts:
-${known}
+${known}${NOTES}
 
 reply with the message text only.`;
 }

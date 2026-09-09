@@ -2,18 +2,32 @@
 // opener → the ONE private reply that comment entitles us to → and from there
 // the thread flows into the same agent loop as any DM.
 import { config } from '../config.js';
-import { upsertThread, claimPrivateReply, recordPrivateReplyText, appendMessage } from '../store/db.js';
+import { upsertThread, claimPrivateReply, recordPrivateReplyText, appendMessage, setCollected } from '../store/db.js';
 import { fetchProfile, fetchPostContext } from '../instagram/profile.js';
 import { ensureDiscount } from '../shopify/discounts.js';
 import { getDriver } from '../agent/llm.js';
 import { toBubbles } from '../agent/shorten.js';
 import { sendPrivateReply, replyToComment } from '../instagram/send.js';
+import { hasPurchaseIntent } from '../agent/intent.js';
+import { activeWorkflow, goalReached, goalTarget } from './workflow-settings.js';
 import { trace } from '../sim/trace.js';
 
 const PRIVATE_REPLY_WINDOW_MS = 7 * 24 * 3600 * 1000;
 
 export async function handleNewComment(evt) {
   trace('webhook', `comment ${evt.commentId} by @${evt.username}: ${evt.text}`);
+  // Goal guardrail: when the operator's outreach target is met, stop spending
+  // openers entirely until they raise it.
+  if (goalReached()) {
+    trace('goal', `outreach goal reached (${goalTarget()} openers) — comment ${evt.commentId} not contacted`);
+    return;
+  }
+  // Intent gate: the one private reply this comment entitles us to is spent
+  // only on comments that read like a potential buyer.
+  if (!(await hasPurchaseIntent(evt.text))) {
+    trace('intent', `comment ${evt.commentId} skipped — no purchase intent ("${(evt.text || '').slice(0, 60)}")`);
+    return;
+  }
   // Optional humanizing delay: a DM seconds after a comment reads as a bot
   // trigger; minutes later it reads as a person who saw it.
   const [lo, hi] = config.openerDelayS;
@@ -49,15 +63,21 @@ async function deliverOpener({ commentId, igsid, username, text, mediaId, at }) 
     is_follower: profile.is_user_follow_business != null ? Number(profile.is_user_follow_business) : undefined,
   });
   const post = await fetchPostContext(mediaId);
-  const discount = config.openerIncludesDiscount ? await ensureDiscount(igsid, username) : null;
+  // Gated workflows hold the code back: the opener OFFERS the promo and asks
+  // for the contact field; the code is minted only when a valid one arrives.
+  const workflow = activeWorkflow();
+  const discount = workflow === 'off' && config.openerIncludesDiscount ? await ensureDiscount(igsid, username) : null;
 
   // The code is minted BEFORE the message is written, so everything the opener
   // says ("made you a code") is literally true by the time it sends.
+  // A comment's private reply is ONE message by API rule — if the model wrote
+  // multiple bubbles anyway, JOIN them instead of silently dropping the rest.
   const opener = toBubbles(
     await getDriver().composeOpener({
       profile, commentText: text, postCaption: post.caption, postImageUrl: post.imageUrl, discount,
+      gate: workflow === 'off' ? null : workflow, featured: config.featuredQuery, percent: config.discountPercent,
     }),
-  )[0];
+  ).join(' ').slice(0, 950);
   if (!opener) { trace('error', `opener came back empty for comment ${commentId}`); return; }
 
   // Seed the thread with the comment/post context so every LATER turn of the
@@ -74,6 +94,7 @@ async function deliverOpener({ commentId, igsid, username, text, mediaId, at }) 
   }
   recordPrivateReplyText(commentId, opener);
   appendMessage(igsid, 'assistant', opener); // the opener is part of the thread's memory
+  if (workflow !== 'off') setCollected(igsid, '_awaiting', workflow); // arm workflow 2
   trace('opener', `sent to @${username}: ${opener}`);
 
   // The Requests-folder problem: a private reply to a non-follower arrives
