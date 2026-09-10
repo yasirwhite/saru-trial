@@ -156,8 +156,24 @@ async function writeThread(igsid, fields = {}, at) {
   await remember(customerId, 'instagram.name', fields.name);
 }
 
+// The comment that opened a thread is written into a system context message by
+// comment-to-dm.js. The portal wants that fact ("commented X on the Y post"),
+// so it gets promoted into memories instead of being dropped with the rest of
+// the scaffolding. The pattern must stay in step with the writer's wording.
+const COMMENT_CONTEXT =
+  /^context: this thread started when they commented "([\s\S]+?)" on the brand's post(?: \(post caption: "([\s\S]+?)"\))?/;
+
 async function writeMessage(igsid, role, content, localId, at) {
-  if (role !== 'user' && role !== 'assistant') return; // 'system' is our own scaffolding
+  if (role === 'system') {
+    const match = COMMENT_CONTEXT.exec(String(content ?? ''));
+    if (match) {
+      const { customerId } = await space(igsid, at);
+      await remember(customerId, 'instagram.comment', match[1]);
+      if (match[2]) await remember(customerId, 'instagram.comment.post', match[2]);
+    }
+    return;
+  }
+  if (role !== 'user' && role !== 'assistant') return; // other scaffolding stays local
   if (!content || !String(content).trim()) return;
   const { customerId, conversationId } = await space(igsid, at);
   const when = new Date(at || Date.now());
@@ -223,9 +239,10 @@ async function backfill() {
   for (const t of threads) await writeThread(t.igsid, { username: t.username, name: t.name }, t.created_at);
   let mirrored = 0;
   for (const m of messages) {
-    if (m.role !== 'user' && m.role !== 'assistant') continue;
+    // System rows route through writeMessage too: it drops them from the
+    // mirror but promotes comment-context facts into memories.
     await writeMessage(m.igsid, m.role, m.content, m.id, m.created_at);
-    mirrored++;
+    if (m.role === 'user' || m.role === 'assistant') mirrored++;
   }
   for (const c of collected) await writeCollected(c.igsid, c.field, c.value);
 

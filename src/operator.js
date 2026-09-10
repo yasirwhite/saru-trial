@@ -10,6 +10,7 @@
 import { config } from './config.js';
 import { appendMessage } from './store/db.js';
 import { withinMessagingWindow } from './flows/dm-reply.js';
+import { ensureDiscount } from './shopify/discounts.js';
 import { sendDm } from './instagram/send.js';
 import { trace } from './sim/trace.js';
 
@@ -60,5 +61,35 @@ export function mountOperator(app) {
     appendMessage(id, 'system', HUMAN_NOTE); // 'system' rows are ours; the mirror skips them
     trace('operator', `human operator → ${id}: ${body}`);
     res.json({ ok: true });
+  });
+
+  // Operator-minted discount. The portal's "Generate discount" button lands
+  // here so the mint follows the same rails the agent's does: real Shopify
+  // code, fixed percent and expiry, one code per subject — ensureDiscount
+  // returns the existing code on a repeat click instead of minting a second.
+  //
+  // `subject` is whatever id the caller tracks the customer by: an igsid for
+  // Instagram threads, or any stable key (e.g. "portal:<customerId>") for
+  // channels the concierge doesn't run. Minting only — nothing is sent to the
+  // customer; delivering the code is the operator's (or the agent's) job.
+  app.post('/operator/discount', async (req, res) => {
+    const { subject, label, key } = req.body || {};
+
+    if (!config.adminKey || key !== config.adminKey) {
+      trace('operator', 'discount rejected — bad or missing admin key');
+      return res.status(401).json({ ok: false, error: 'unauthorized' });
+    }
+
+    const id = String(subject ?? '').trim();
+    if (!id) return res.status(400).json({ ok: false, error: 'subject is required' });
+
+    try {
+      const discount = await ensureDiscount(id, String(label ?? '').trim() || undefined);
+      trace('operator', `discount for ${id}: ${discount.code}`);
+      res.json({ ok: true, code: discount.code, percent: discount.percent, expires_at: discount.expiresAt ?? null, reused: !!discount.reused });
+    } catch (err) {
+      trace('error', `operator discount failed for ${id}: ${err.message}`);
+      res.status(502).json({ ok: false, error: `discount mint failed: ${err.message}` });
+    }
   });
 }

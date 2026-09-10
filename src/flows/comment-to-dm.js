@@ -2,14 +2,14 @@
 // opener → the ONE private reply that comment entitles us to → and from there
 // the thread flows into the same agent loop as any DM.
 import { config } from '../config.js';
-import { upsertThread, claimPrivateReply, recordPrivateReplyText, appendMessage, setCollected } from '../store/db.js';
+import { upsertThread, getThread, history, claimPrivateReply, recordPrivateReplyText, appendMessage, setCollected } from '../store/db.js';
 import { fetchProfile, fetchPostContext } from '../instagram/profile.js';
 import { ensureDiscount } from '../shopify/discounts.js';
 import { getDriver } from '../agent/llm.js';
 import { toBubbles } from '../agent/shorten.js';
 import { sendPrivateReply, replyToComment } from '../instagram/send.js';
 import { hasPurchaseIntent } from '../agent/intent.js';
-import { activeWorkflow, goalReached, goalTarget } from './workflow-settings.js';
+import { activeWorkflow, conversationMode, goalReached, goalTarget } from './workflow-settings.js';
 import { trace } from '../sim/trace.js';
 
 const PRIVATE_REPLY_WINDOW_MS = 7 * 24 * 3600 * 1000;
@@ -20,6 +20,26 @@ export async function handleNewComment(evt) {
   // openers entirely until they raise it.
   if (goalReached()) {
     trace('goal', `outreach goal reached (${goalTarget()} openers) — comment ${evt.commentId} not contacted`);
+    return;
+  }
+  // One conversation per person. A new comment from someone we're already
+  // talking to must not fire a second greeting — a re-introduction reads
+  // exactly as botted as it is. The comment becomes context in the existing
+  // thread instead, so the next agent (or human) turn can work it in.
+  // Dormant threads (quiet past the 7-day reply window) count as over, and a
+  // fresh comment there earns a fresh opener.
+  const thread = getThread(evt.igsid);
+  const lastSeen = thread ? (thread.last_user_msg_at ?? thread.created_at) : null;
+  const activeThread = thread && history(evt.igsid, 1).length > 0
+    && lastSeen != null && Date.now() - lastSeen < PRIVATE_REPLY_WINDOW_MS;
+  const held = conversationMode(evt.igsid) === 'human';
+  if (activeThread || held) {
+    if (thread) {
+      appendMessage(evt.igsid, 'system',
+        `context: they just commented "${evt.text}" on another of the brand's posts. ` +
+        'this conversation already exists — if they message again, work the comment in naturally; never re-introduce yourself or restart the pitch.');
+    }
+    trace('opener', `comment ${evt.commentId} folded into existing thread with @${evt.username}${held ? ' (human-held)' : ''} — no new opener`);
     return;
   }
   // Intent gate: the one private reply this comment entitles us to is spent

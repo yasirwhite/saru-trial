@@ -1,0 +1,742 @@
+{
+  "meta": {
+    "built": "2026-09-09",
+    "brand": "Saru Skin (fictional test brand; comments are real, sourced elsewhere)",
+    "description": "Verbatim public customer comments for testing an Instagram AI concierge. PII scrubbed (usernames, @handles, links removed); text otherwise unmodified.",
+    "sources": [
+      {
+        "source": "youtube",
+        "detail": "Public comment sections on beauty/skincare videos (Glossier, CeraVe, The Ordinary, Sephora hauls, routine and dupe videos), fetched logged-out via the public innertube endpoint",
+        "videos_scraped": 181,
+        "raw_comments_collected": 8777,
+        "comments_used": 100
+      },
+      {
+        "source": "reddit",
+        "detail": "r/SkincareAddiction, r/Sephora public .json endpoints - ATTEMPTED, NOT USED: hard 403 / JS proof-of-work bot gate from this environment",
+        "comments_used": 0
+      },
+      {
+        "source": "other",
+        "detail": "Public review pages (Trustpilot, Influenster, MakeupAlley, INCIDecoder) - ATTEMPTED, NOT USED: 403 or redirect-blocked",
+        "comments_used": 0
+      }
+    ],
+    "counts_by_category": {
+      "purchase_intent": 25,
+      "product_question": 20,
+      "price_objection": 10,
+      "compliment_no_intent": 15,
+      "complaint_negative": 10,
+      "spam_troll_noise": 10,
+      "edge_cases": 10
+    },
+    "counts_by_expected": {
+      "reply": 67,
+      "skip": 33
+    },
+    "total": 100
+  },
+  "comments": [
+    {
+      "id": "c001",
+      "text": "This is amazing instantly ordering some glossier",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c002",
+      "text": "i NEED glossier to start shipping internationally",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c003",
+      "text": "Take my money 💜",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c004",
+      "text": "Where to buy the product..not availbale on watsons",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c005",
+      "text": "Is round lab available in India",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c006",
+      "text": "bloody obsessed with these grwms! keep em coming glossier x (AND SHIP TO THE UK!)",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c007",
+      "text": "i wish glossier was available in Europe :(",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c008",
+      "text": "I need this",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c009",
+      "text": "Is cerave available in India?",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c010",
+      "text": "Your skin is GLOWING! I've been researching this product and finally ordered it recently!",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c011",
+      "text": "Omg thank you so much I’m going to buy it and see if it works for acne this helped me so much",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c012",
+      "text": "Are they available in Spain??",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c013",
+      "text": "Hi I am in Egypt can I buy them in Egypt or lest say is it available in africa",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c014",
+      "text": "Where can I buy the whole package?",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c015",
+      "text": "Where can I buy",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c016",
+      "text": "Ohh that was sold out for such a long time last year I thought it had been discontinued!",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c017",
+      "text": "Salicylic acid which is always sold out. Really changed my skin when I first got 😖",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c018",
+      "text": "I just bought a skin care routine…. Lol",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c019",
+      "text": "where do you get your products from online?",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c020",
+      "text": "Would love to get the stuff in my cart its not much but something",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c021",
+      "text": "Is the sweatshirt comfy? I’ve been wanting to get it",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c022",
+      "text": "Same 😂 tell me I don’t have to buy it and I’ll buy it.",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c023",
+      "text": "Could you please give the link for purchasing the products 😊",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c024",
+      "text": "Does anyone use tone up sunscreen from round lab? What website do you use to purchase it? I appreciate it🙏🏼🙏🏼",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c025",
+      "text": "The kitties are so cute!! :) And I neeeed the cherry one! it's just so sad that they don't ship to Norway :((",
+      "category": "purchase_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c026",
+      "text": "does it work for dry skin as well ☺️",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c027",
+      "text": "is it good for acne prone skin. Though i dont have acne these days",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c028",
+      "text": "Me too, do you know what is the best for combination skin?",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c029",
+      "text": "How often should I use glycolic acid? 😅",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c030",
+      "text": "How long it took for it to show results ?",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c031",
+      "text": "Can I use niacinamide with salycidic acid",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c032",
+      "text": "Can I use the green one in the morning?",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c033",
+      "text": "Can I use separate niacinamide in the morning? Or with this product is enough?",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c034",
+      "text": "what size glossier shirt are you wearing? ❤️",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c035",
+      "text": "Only The Ordinary? What about of La Roche-Posay Niacinamide 10% ???",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c036",
+      "text": "Was he saying to use foaming cleanser for oil skin and gel cleanser for dry and sensitive skin?",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c037",
+      "text": "What is the best products for anti agins 40s male with dark circles under eye",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c038",
+      "text": "Does it make ur face itchy also ?",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c039",
+      "text": "what's the serum called? please respond <3",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c040",
+      "text": "which Vitamin C do you use?",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c041",
+      "text": "do you use a green tea toner/mist? If so which one?",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c042",
+      "text": "is kajal eyeliner good for sensitive eyes/watery eyes? v interested in trying it, i can’t find a water liner to save me",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c043",
+      "text": "What about Numbuzin?",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c044",
+      "text": "Is it normal that your face gets red/ burn a little after applying the serum?",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c045",
+      "text": "do you use it in the day time too ? What actives work for you ?",
+      "category": "product_question",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c046",
+      "text": "Ugh why does Glossier have to be so pricey",
+      "category": "price_objection",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c047",
+      "text": "I saw a meme about how glossier is expensive Vaseline and low key I dieddd lol",
+      "category": "price_objection",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c048",
+      "text": "finally someone who said that the benetint is literally the Etude water tint but overpriced!!💕💕💕 it’s sooo true",
+      "category": "price_objection",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c049",
+      "text": "Anyone else in their twenties who can't afford 50 different skincare products? Lmao",
+      "category": "price_objection",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c050",
+      "text": "Ardell stroke a brow is a dupe for Glossier brow flick and it costs like $6.",
+      "category": "price_objection",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c051",
+      "text": "Yes I hope they would reduce the cost a bit so that middle class people will be able to afford them",
+      "category": "price_objection",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c052",
+      "text": "Budget friendly recommendations please?",
+      "category": "price_objection",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c053",
+      "text": "Where is your discount code for joui",
+      "category": "price_objection",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c054",
+      "text": "Tell me why I bought Dollar tree makeup bc Sephora is way too expensive 😐...",
+      "category": "price_objection",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c055",
+      "text": "it's almost 200AED for 50ml thats really expensive tho, banana boat are like 30 AED for 90ml",
+      "category": "price_objection",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c056",
+      "text": "actually obsessed with Glossier 😍🌸",
+      "category": "compliment_no_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c057",
+      "text": "Glossier makeup is so fun and I love their products 😍",
+      "category": "compliment_no_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c058",
+      "text": "the ordinary has simple packaging but that just makes it more aesthetically pleasing",
+      "category": "compliment_no_intent",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c059",
+      "text": "The products are just really beautiful to look at",
+      "category": "compliment_no_intent",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c060",
+      "text": "Having a brand that is fragrance free is the most amazing thing EVER",
+      "category": "compliment_no_intent",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c061",
+      "text": "Love their products!",
+      "category": "compliment_no_intent",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c062",
+      "text": "I've been using this brand forever. I love it! Never had a bad reaction",
+      "category": "compliment_no_intent",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c063",
+      "text": "I've been using cerave moisturizer morning and night for years and I love it.",
+      "category": "compliment_no_intent",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c064",
+      "text": "The serum is UNREAL, I absolutely love it!",
+      "category": "compliment_no_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c065",
+      "text": "Your skin is so CLEAR and AMAZING!!!! Wow",
+      "category": "compliment_no_intent",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c066",
+      "text": "I couldn't stop staring at how good her skin looks!!",
+      "category": "compliment_no_intent",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c067",
+      "text": "all these products look PERFECT for summer ☀️🌈",
+      "category": "compliment_no_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c068",
+      "text": "I just got the birthday one and it’s amazing.",
+      "category": "compliment_no_intent",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c069",
+      "text": "CERAVE is always the best cleanser and face wash for all skin types",
+      "category": "compliment_no_intent",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c070",
+      "text": "Love the Wishtrend mandelic acid 🖤",
+      "category": "compliment_no_intent",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c071",
+      "text": "The byoma gel moisturiser caused a lot of breakouts for me!",
+      "category": "complaint_negative",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c072",
+      "text": "minimalist unfortunately didn't work for me, and I'm scared to give it another go :/",
+      "category": "complaint_negative",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c073",
+      "text": "I tried both. beauty of joseon was perfect for my sensitive skin the other one irritated my face badly.",
+      "category": "complaint_negative",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c074",
+      "text": "I followed their routine they gave me and I broke out 😞",
+      "category": "complaint_negative",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c075",
+      "text": "Definitely agree! It irritates my face! 😢 it makes me breakout more! 😢",
+      "category": "complaint_negative",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c076",
+      "text": "This happened to me too, I got a rash all over my face and then so many pimples and then had the worst dry skin for days",
+      "category": "complaint_negative",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c077",
+      "text": "Nothing. I left the Ordinary in March 2020 after a great burn from their products. I still recover. So no way.",
+      "category": "complaint_negative",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c078",
+      "text": "It stings sooo bad though!!",
+      "category": "complaint_negative",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c079",
+      "text": "this did absolutely nithing and ive been using it for 2 months, gonna try the bp cleaneer",
+      "category": "complaint_negative",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c080",
+      "text": "I just ordered one but the niacinimide had some pink substance in it. Can I use it please?",
+      "category": "complaint_negative",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c081",
+      "text": "❤️🦄😍🦭🦄❤️📲🏸👍💖",
+      "category": "spam_troll_noise",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c082",
+      "text": "😂😂😂😂",
+      "category": "spam_troll_noise",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c083",
+      "text": "❤❤❤❤❤❤❤❤❤❤❤❤🎉🎉🎉🎉🎉🎉",
+      "category": "spam_troll_noise",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c084",
+      "text": "Which present would you want to keep? ￼CLICK HERE:",
+      "category": "spam_troll_noise",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c085",
+      "text": ".",
+      "category": "spam_troll_noise",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c086",
+      "text": "!",
+      "category": "spam_troll_noise",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c087",
+      "text": "Thanks for the click bait sir",
+      "category": "spam_troll_noise",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c088",
+      "text": "🥕🥕🥕🥕🥕🥕",
+      "category": "spam_troll_noise",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c089",
+      "text": "No Thank u i have revolut bc when u make an friend an account u get money 20 $ - 200 $ which i love.",
+      "category": "spam_troll_noise",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c090",
+      "text": "🛠 Get my full system to build + launch with AI",
+      "category": "spam_troll_noise",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c091",
+      "text": "will it suit sensative skin?? and can we use in pregnancy??? plz tell",
+      "category": "edge_cases",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c092",
+      "text": "Acne can be cured with an oil free plant based diet. So can most things.",
+      "category": "edge_cases",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c093",
+      "text": "This is what I am afraid of. I really wanna try tretinoin 0.25%",
+      "category": "edge_cases",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c094",
+      "text": "This has helped with my rosacea. Im going to try other products from The Ordinary as well.",
+      "category": "edge_cases",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c095",
+      "text": "Plz help me.if somebody can afford,plz I want this favour.I want these products.",
+      "category": "edge_cases",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c096",
+      "text": "Can i use that only 1 products for may melasma",
+      "category": "edge_cases",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c097",
+      "text": "شكرا على الشرح الرائع",
+      "category": "edge_cases",
+      "source": "youtube",
+      "expected": "skip"
+    },
+    {
+      "id": "c098",
+      "text": "En donde esran a la venta?",
+      "category": "edge_cases",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c099",
+      "text": "Y aún así, siento que el drugstore está caro porque hay muchos productos",
+      "category": "edge_cases",
+      "source": "youtube",
+      "expected": "reply"
+    },
+    {
+      "id": "c100",
+      "text": "don't give these scam beauty product companies ideas... 🤣🤣🤣🤣",
+      "category": "edge_cases",
+      "source": "youtube",
+      "expected": "skip"
+    }
+  ]
+}

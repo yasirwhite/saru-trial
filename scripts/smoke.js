@@ -38,9 +38,9 @@ async function outboundAfter(n, ms = 30000) {
   return state();
 }
 
-const comment = (id, text) => ({
+const comment = (id, text, username = 'maya.runs') => ({
   object: 'instagram',
-  entry: [{ id: 'sim-brand-account', time: Math.floor(Date.now() / 1000), changes: [{ field: 'comments', value: { id, from: { id: 'sim-user-maya.runs', username: 'maya.runs' }, media: { id: 'sim-post-1' }, text } }] }],
+  entry: [{ id: 'sim-brand-account', time: Math.floor(Date.now() / 1000), changes: [{ field: 'comments', value: { id, from: { id: `sim-user-${username}`, username }, media: { id: 'sim-post-1' }, text } }] }],
 });
 const dm = (mid, text) => ({
   object: 'instagram',
@@ -98,22 +98,24 @@ try {
   await postWebhook(comment('c-1', 'obsessed with this roast 😍'));
   await sleep(1500);
   ok((await state()).outbound.length === before, 'redelivered comment produced no second reply');
+  // One conversation per person: a second comment from someone with an active
+  // thread folds in as context instead of firing a second greeting.
   await postWebhook(comment('c-2', 'need this in my life'));
   await sleep(2500);
   s = await state();
-  ok(s.outbound.filter((o) => o.kind === 'private_reply').length === 2, 'a NEW comment still gets its opener');
-  const codes = s.outbound.filter((o) => o.kind === 'private_reply').map((o) => (o.text.match(/[A-Z]+-[A-Z0-9]{4}/) || [])[0]);
-  ok(codes[0] && codes[0] === codes[1], 'same customer keeps the same code (one per customer)');
+  ok(s.outbound.filter((o) => o.kind === 'private_reply').length === 1, 'second comment from an active thread folds in — no re-greeting');
 
   console.log('\npublic nudge: only non-followers need one');
   s = await state();
   ok(s.outbound.filter((o) => o.kind === 'comment_reply').length === 0, 'follower comments got NO public nudge (they get notified anyway)');
-  await fetch(`${BASE}/sim/persona`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_user_follow_business: false }) });
-  await postWebhook(comment('c-3', 'ok i need this'));
+  // A fresh customer (the sim only impersonates maya, so nina's profile fetch
+  // 404s → non-follower fallback) still earns an opener, and the nudge rides
+  // along because she would never see it in Requests otherwise.
+  await postWebhook(comment('c-3', 'ok i need this', 'nina.day'));
   await sleep(2500);
   s = await state();
   ok(s.outbound.filter((o) => o.kind === 'comment_reply').length === 1, 'non-follower comment got the public "check your dms" nudge');
-  ok(s.outbound.filter((o) => o.kind === 'private_reply').length === 3, 'nudge rode along with a normal opener');
+  ok(s.outbound.filter((o) => o.kind === 'private_reply').length === 2, 'nudge rode along with a fresh customer\'s opener');
   await fetch(`${BASE}/sim/persona`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_user_follow_business: true }) });
 
   console.log('\nagent loop over live Shopify MCP');
