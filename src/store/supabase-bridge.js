@@ -264,7 +264,19 @@ async function pollGoal() {
     WHERE brand_id = ${scope.brandId} AND status = 'active'
     ORDER BY created_at DESC, id DESC
     LIMIT 1`;
-  if (!goal) return;
+  if (!goal) {
+    // A stopped promotion must actually stop the agent: clear every goal-
+    // applied override so the workflow falls back to env defaults, featured
+    // pin included — a pin left behind would keep pitching the old product.
+    if (lastGoalSignature !== 'none') {
+      lastGoalSignature = 'none';
+      for (const key of ['workflow', 'goal_target', 'featured_variant_id', 'featured_title']) {
+        store.clearSetting(key);
+      }
+      trace('bridge', 'goal poll: no active goal — cleared goal-applied settings, agent back to defaults');
+    }
+    return;
+  }
 
   const signature = JSON.stringify(goal);
   if (signature === lastGoalSignature) return; // unchanged — stay quiet

@@ -26,11 +26,11 @@ export async function fetchProfile(igsid) {
 export async function fetchPostContext(mediaId) {
   // caption AND the actual picture: openers that react to what's in the photo
   // read human; caption-only context goes blind on caption-less posts.
-  const empty = { caption: null, imageUrl: null };
+  const empty = { caption: null, imageUrl: null, permalink: null };
   if (!mediaId) return empty;
   try {
     if (config.transport === 'meta') {
-      const media = await metaGet(`${mediaId}?fields=caption,media_type,media_url,thumbnail_url`);
+      const media = await metaGet(`${mediaId}?fields=caption,media_type,media_url,thumbnail_url,permalink`);
       const url = media.thumbnail_url || (media.media_type === 'VIDEO' ? null : media.media_url) || null;
       // IG's CDN 403s third-party fetchers (OpenAI included), so we download
       // the picture ourselves and hand the model inline data it never has to fetch.
@@ -44,7 +44,7 @@ export async function fetchPostContext(mediaId) {
           trace('error', `post image download failed (${img.status}) — opener goes caption-only`);
         }
       }
-      return { caption: media.caption || null, imageUrl };
+      return { caption: media.caption || null, imageUrl, permalink: media.permalink || null };
     }
     const res = await fetch(`http://127.0.0.1:${config.port}/sim/post/${mediaId}`);
     return res.ok ? { ...empty, caption: (await res.json()).caption } : empty;

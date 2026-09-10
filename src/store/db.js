@@ -107,6 +107,8 @@ export const getSetting = (key) =>
   db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value ?? null;
 export const setSetting = (key, value) =>
   db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run(key, String(value), Date.now());
+export const clearSetting = (key) =>
+  db.prepare('DELETE FROM settings WHERE key = ?').run(key);
 
 // Dashboard reads.
 export const listContacts = () =>

@@ -110,14 +110,16 @@ const mockDriver = {
   },
   // Deterministic but grounded — built from the actually-fetched facts, so
   // smoke tests can assert personalization without an API key.
-  async composeOpener({ profile, commentText, discount, gate, featured, percent }) {
-    const who = profile?.name?.split(' ')[0]?.toLowerCase() || `@${profile?.username || 'there'}`;
+  async composeOpener({ commentText, discount, gate, greeting }) {
+    // Address exactly what greeting.js resolved — never the raw profile name.
+    // No usable name means a nameless opener, not a handle fallback.
+    const who = greeting?.greetName ? `hey ${greeting.greetName}!` : 'hey!';
     if (gate && !discount) {
       // Engagement-only opener: no offer, no ask — the promo comes later in the dm.
-      return `hey ${who}! ai intern here 😅 saw your comment ("${(commentText || '').slice(0, 60)}") — that one's been moving fast fr. what's the occasion?`;
+      return `${who} ai intern here 😅 saw your comment ("${(commentText || '').slice(0, 60)}") — that one's been moving fast fr. what's the occasion?`;
     }
     const codeLine = discount ? ` made you a code — ${discount.code}, ${discount.percent}% off this week.` : '';
-    return `hey ${who}! ai intern here 😅 saw your comment ("${(commentText || '').slice(0, 60)}") — love that.${codeLine} what are you shopping for today?`;
+    return `${who} ai intern here 😅 saw your comment ("${(commentText || '').slice(0, 60)}") — love that.${codeLine} what are you shopping for today?`;
   },
 };
 

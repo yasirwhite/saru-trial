@@ -1,8 +1,9 @@
 // Inbound DM → agent loop → outbound DM(s), with the 24-hour messaging window
 // enforced on the way out.
 import { config } from '../config.js';
-import { upsertThread, getThread, touchUserMessage, appendMessage, resetThread } from '../store/db.js';
+import { upsertThread, getThread, touchUserMessage, appendMessage, resetThread, getCollected, setCollected } from '../store/db.js';
 import { fetchProfile } from '../instagram/profile.js';
+import { resolveGreeting } from '../agent/greeting.js';
 import { runAgentTurn } from '../agent/loop.js';
 import { handlePhoneReply } from './phone-gate.js';
 import { conversationMode } from './workflow-settings.js';
@@ -47,6 +48,18 @@ export async function handleInboundDm({ igsid, text, at }) {
         is_follower: p.is_user_follow_business != null ? Number(p.is_user_follow_business) : undefined,
       });
     }
+  }
+
+  // How to address them. Threads opened by our own opener already decided this
+  // (comment-to-dm.js) and the stored value stands — re-deciding mid-thread is
+  // how an agent starts calling someone a different name on turn four. Only a
+  // thread that never had an opener (they DM'd us first) resolves it here.
+  if (getCollected(igsid, 'greeting.name') === null) {
+    const t = getThread(igsid);
+    const greeting = await resolveGreeting({ name: t?.name, username: t?.username });
+    setCollected(igsid, 'greeting.name', greeting.greetName || '');
+    setCollected(igsid, '_greeting.basis', greeting.basis);
+    trace('greeting', `${igsid} name ${JSON.stringify(t?.name ?? null)} → ${greeting.greetName ? `"${greeting.greetName}" (${greeting.basis})` : 'no name (none)'}`);
   }
 
   // Human takeover. An operator holding this thread in the Kosha portal means

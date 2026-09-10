@@ -9,6 +9,7 @@ import { getDriver } from '../agent/llm.js';
 import { toBubbles } from '../agent/shorten.js';
 import { sendPrivateReply, replyToComment } from '../instagram/send.js';
 import { hasPurchaseIntent } from '../agent/intent.js';
+import { resolveGreeting } from '../agent/greeting.js';
 import { activeWorkflow, conversationMode, goalReached, goalTarget } from './workflow-settings.js';
 import { trace } from '../sim/trace.js';
 
@@ -82,7 +83,19 @@ async function deliverOpener({ commentId, igsid, username, text, mediaId, at }) 
     follower_count: profile.follower_count,
     is_follower: profile.is_user_follow_business != null ? Number(profile.is_user_follow_business) : undefined,
   });
+  // How to address them — decided ONCE, here, and persisted, so the opener and
+  // every later agent turn say the same thing. An instagram name is as often a
+  // title, a brand or a joke as it is a name; blindly taking its first token is
+  // what produced "hey mr white".
+  const greeting = await resolveGreeting({ name: profile.name, username: profile.username || username });
+  setCollected(igsid, 'greeting.name', greeting.greetName || '');
+  setCollected(igsid, '_greeting.basis', greeting.basis);
+  trace('greeting', `@${username} name ${JSON.stringify(profile.name ?? null)} → ${greeting.greetName ? `"${greeting.greetName}" (${greeting.basis})` : 'no name (none)'}`);
+
   const post = await fetchPostContext(mediaId);
+  // The portal's customer panel links "Commented on" straight to the post, so
+  // the operator can see what they reacted to instead of hunting by caption.
+  if (post.permalink) setCollected(igsid, 'instagram.comment.link', post.permalink);
   // Gated workflows hold the code back: the opener OFFERS the promo and asks
   // for the contact field; the code is minted only when a valid one arrives.
   const workflow = activeWorkflow();
@@ -94,7 +107,7 @@ async function deliverOpener({ commentId, igsid, username, text, mediaId, at }) 
   // multiple bubbles anyway, JOIN them instead of silently dropping the rest.
   const opener = toBubbles(
     await getDriver().composeOpener({
-      profile, commentText: text, postCaption: post.caption, postImageUrl: post.imageUrl, discount,
+      profile, greeting, commentText: text, postCaption: post.caption, postImageUrl: post.imageUrl, discount,
       gate: workflow === 'off' ? null : workflow, featured: config.featuredQuery, percent: config.discountPercent,
     }),
   ).join(' ').slice(0, 950);

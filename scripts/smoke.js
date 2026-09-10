@@ -222,6 +222,36 @@ try {
   g = await outboundAfter2(gn);
   ok(g.outbound.length > gn, 'post-capture DMs still flow to the agent');
 
+  // An instagram "name" is as often a title, a brand or a joke as it is a name.
+  // maya (asserted above) proves the plain case; these two prove the other two.
+  console.log('\ngreeting resolution: monikers stay whole, junk names get none');
+  const persona = async (p) => fetch(`${BASE}/sim/persona`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p),
+  });
+  // discount codes are SLUG-XXXX built from the handle — not an address, so they
+  // must not be read as one by the assertions below
+  const stripCode = (t) => (t || '').replace(/[A-Z]{2,}-[A-Z0-9]{4}/g, '');
+
+  await persona({ username: 'mr.white', name: 'Mr White' });
+  let gn2 = (await state()).outbound.length;
+  await postWebhook(comment('c-4', 'need this hoodie in my life', 'mr.white'));
+  s = await outboundAfter(gn2);
+  const mrOpener = stripCode(s.outbound.slice(gn2).find((o) => o.kind === 'private_reply')?.text);
+  ok(/\bmr white\b/i.test(mrOpener), 'self-chosen moniker "Mr White" is greeted whole ("hey mr white")');
+  ok(!/\bmr\b(?! white)/i.test(mrOpener) && !/(?<!mr )\bwhite\b/i.test(mrOpener),
+    'moniker is never dissected — no bare "mr", no bare "white"');
+  ok(!/Mr\.?\s*White/.test(mrOpener) && !/\bhello\b/i.test(mrOpener),
+    'moniker is never formalized — no "Hello Mr. White", stays lowercase');
+
+  await persona({ username: 'xx.dark.xx', name: 'cloud mask stan' });
+  gn2 = (await state()).outbound.length;
+  await postWebhook(comment('c-5', 'ok i need this fr', 'xx.dark.xx'));
+  s = await outboundAfter(gn2);
+  const junkOpener = stripCode(s.outbound.slice(gn2).find((o) => o.kind === 'private_reply')?.text);
+  ok(!!junkOpener, 'a meme-named commenter still earns an opener');
+  ok(!/cloud|mask|stan|dark|xx|@/i.test(junkOpener),
+    'joke profile name is never echoed back and no handle greeting — nameless opener');
+
   console.log(`\n${failed === 0 ? 'ALL GREEN' : 'FAILURES'} — ${passed} passed, ${failed} failed`);
   process.exitCode = failed === 0 ? 0 : 1;
 } catch (err) {

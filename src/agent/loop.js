@@ -13,7 +13,10 @@ const MAX_ROUNDS = 6; // enough for search → details → cart → link, with s
 export async function runAgentTurn(igsid) {
   const thread = getThread(igsid);
   const awaiting = getCollected(igsid, '_awaiting');
+  // '' is a decision (no usable name), null is "never decided" — both mean the
+  // agent addresses nobody; neither re-runs the resolver mid-conversation.
   const flow = {
+    greetName: getCollected(igsid, 'greeting.name') || null,
     captured: getCollected(igsid, 'phone') || getCollected(igsid, 'email'),
     awaitingField: (awaiting === 'phone' || awaiting === 'email') && !getCollected(igsid, awaiting) ? awaiting : null,
   };

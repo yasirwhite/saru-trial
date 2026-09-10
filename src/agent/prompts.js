@@ -80,9 +80,20 @@ closing the sale:
 - discounts: the code's terms are fixed by the brand. you can remind them to
   enter it at checkout; you cannot change percent or expiry.`;
 
+// The one address rule, in three cases, written once and used by both prompts.
+// (An instagram "name" is as often a title, a brand or a joke as it is a name —
+// src/agent/greeting.js decides which, and this only reports the verdict.)
+function addressFact(greetName, rawName) {
+  if (greetName) {
+    return `how to address them: "${greetName}" — exactly that, lowercase, as one\n  piece. never expand it, shorten it, split it, or formalize it ("Hello Mr.\n  White" and "hey mr" are both wrong where "hey mr white" is right).`;
+  }
+  return `how to address them: with NO name at all.${rawName ? ` their profile name ("${rawName}") is not a\n  usable name` : ' nothing they go by is usable as a name'} — don't guess one, don't use their\n  handle, don't echo the profile name back at them. a nameless opener is\n  invisible; a wrong name is a tell.`;
+}
+
 export function systemPrompt(thread, flow = {}) {
   const facts = [
-    thread?.name && `name: ${thread.name}`,
+    addressFact(flow.greetName || null, thread?.name || null),
+    thread?.name && `their profile name, for context only (it may be a joke, a brand, or a persona): ${thread.name}`,
     thread?.username && `instagram: @${thread.username}`,
     Number.isFinite(thread?.follower_count) && `followers: ${thread.follower_count}`,
     thread?.is_follower != null && (thread.is_follower ? 'follows the brand' : 'does not follow the brand yet'),
@@ -107,11 +118,13 @@ ${facts || '(nothing yet beyond this conversation)'}${NOTES}`;
 }
 
 // The one-shot opener.
-export function openerPrompt({ profile, commentText, postCaption, postImageUrl, discount, gate, featured, percent }) {
+export function openerPrompt({ profile, commentText, postCaption, postImageUrl, discount, gate, featured, percent, greeting }) {
   const p = profile || {};
+  const g = greeting || { greetName: null, basis: 'none' };
   const known = [
     p.username && `their handle: @${p.username}`,
-    p.name && `their name: ${p.name}`,
+    p.name && `their profile name, for context only (it may be a joke, a brand, or a persona): ${p.name}`,
+    addressFact(g.greetName, p.name || null),
     p.is_user_follow_business != null && (p.is_user_follow_business ? 'they already follow the brand' : "they don't follow the brand yet"),
     `their comment: "${commentText}"`,
     postCaption && `the post's caption: "${postCaption}"`,
@@ -126,8 +139,21 @@ single shot and anything after the first line is thrown away.)
 ${VOICE}
 
 write that one opener. requirements:
-- greet them by first name or handle (one, never both) and react to what they
-  actually said, in your own words.
+- ${g.greetName
+    ? `open by addressing them as "${g.greetName}" — that exact string, lowercase,
+  nothing added and nothing dropped${g.basis === 'moniker'
+      ? ` (it's a moniker they chose for themselves: it
+  travels whole. "hey ${g.greetName}" — never just the title, never just the
+  second half, never capitalized or punctuated into "Hello ${g.greetName
+    .split(' ').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')}")`
+      : ''} — then react to what they actually
+  said, in your own words.`
+    : `use NO name, NO handle and NO nickname anywhere in this message —
+  nothing they go by is usable and a guessed name is the loudest bot tell there
+  is. open straight into the reaction ("hey — the overnight cloud mask gives
+  major glow while you sleep.") and react to what they actually said, in your
+  own words. a nameless opener reads completely natural; do not compensate with
+  extra warmth.`}
 - reference the post the way a person would: category level or a natural
   nickname ("glad the tees are hitting", "that colorway went crazy") — NEVER
   a full product title, which instantly reads botted. if there's a short name
@@ -136,8 +162,8 @@ write that one opener. requirements:
   when there's truly nothing specific to react to.
 - 2 short sentences max, and END ON A STATEMENT by default — a first message
   does NOT need a question, and interview-style questions ("what's your skin
-  type") read botted. the model to beat: "hey maya, the overnight cloud mask
-  gives major glow while you sleep. glad you liked it." ask a question only
+  type") read botted. the model to beat: "hey ${g.greetName || '—'}${g.greetName ? ',' : ''} the overnight cloud
+  mask gives major glow while you sleep. glad you liked it." ask a question only
   when their comment literally asked something back.
 - extra banned words for openers: "vibe", "vibes", "absolute", "obsessed",
   "bestie", "queen" — casual, not caricature.
