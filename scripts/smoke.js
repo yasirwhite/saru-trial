@@ -98,12 +98,20 @@ try {
   await postWebhook(comment('c-1', 'obsessed with this roast 😍'));
   await sleep(1500);
   ok((await state()).outbound.length === before, 'redelivered comment produced no second reply');
-  // One conversation per person: a second comment from someone with an active
-  // thread folds in as context instead of firing a second greeting.
+  // One conversation per person, acknowledged: a second comment from someone
+  // with an active thread earns ONE continuation reply — never a re-greeting,
+  // never an offer — and pure noise earns nothing.
   await postWebhook(comment('c-2', 'need this in my life'));
   await sleep(2500);
   s = await state();
-  ok(s.outbound.filter((o) => o.kind === 'private_reply').length === 1, 'second comment from an active thread folds in — no re-greeting');
+  const ackReplies = s.outbound.filter((o) => o.kind === 'private_reply');
+  ok(ackReplies.length === 2, 'second comment from an active thread gets exactly one acknowledgment reply');
+  const ack = ackReplies[1]?.text || '';
+  ok(!/intern|welcome|nice to meet/i.test(ack), 'acknowledgment never re-introduces');
+  ok(!/(code|discount|promo|% ?off|expire)/i.test(ack), 'acknowledgment carries no offer');
+  await postWebhook(comment('c-2b', 'another test'));
+  await sleep(2000);
+  ok((await state()).outbound.filter((o) => o.kind === 'private_reply').length === 2, 'noise repeat comment ("another test") still gets nothing');
 
   console.log('\npublic nudge: only non-followers need one');
   s = await state();
@@ -115,7 +123,7 @@ try {
   await sleep(2500);
   s = await state();
   ok(s.outbound.filter((o) => o.kind === 'comment_reply').length === 1, 'non-follower comment got the public "check your dms" nudge');
-  ok(s.outbound.filter((o) => o.kind === 'private_reply').length === 2, 'nudge rode along with a fresh customer\'s opener');
+  ok(s.outbound.filter((o) => o.kind === 'private_reply').length === 3, 'nudge rode along with a fresh customer\'s opener');
   await fetch(`${BASE}/sim/persona`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_user_follow_business: true }) });
 
   console.log('\nagent loop over live Shopify MCP');

@@ -1,7 +1,7 @@
 // The LLM behind one interface so the loop is provider-agnostic and testable:
 import OpenAI from 'openai';
 import { config } from '../config.js';
-import { openerPrompt } from './prompts.js';
+import { openerPrompt, continuationPrompt } from './prompts.js';
 import { trace } from '../sim/trace.js';
 
 // --- openai ------------------------------------------------------------
@@ -32,6 +32,11 @@ const openaiDriver = {
       }
     }
     const msg = await this.complete([{ role: 'user', content: openerPrompt({ ...args, postImageUrl: null }) }], []);
+    return (msg.content || '').trim();
+  },
+  // Repeat-comment acknowledgment — caption-only, one fast call.
+  async composeContinuation(args) {
+    const msg = await this.complete([{ role: 'user', content: continuationPrompt(args) }], []);
     return (msg.content || '').trim();
   },
 };
@@ -120,6 +125,10 @@ const mockDriver = {
     }
     const codeLine = discount ? ` made you a code — ${discount.code}, ${discount.percent}% off this week.` : '';
     return `${who} ai intern here 😅 saw your comment ("${(commentText || '').slice(0, 60)}") — love that.${codeLine} what are you shopping for today?`;
+  },
+  async composeContinuation({ greetName, commentText }) {
+    const who = greetName ? `${greetName} ` : '';
+    return `saw your comment ${who}("${(commentText || '').slice(0, 40)}") — glad it's still hitting.`;
   },
 };
 

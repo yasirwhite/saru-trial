@@ -185,3 +185,35 @@ ${known}${NOTES}
 
 reply with the message text only.`;
 }
+
+// The repeat-comment acknowledgment: someone we're ALREADY talking to just
+// commented on another post. One message that says "we noticed" in the same
+// ongoing voice — never a re-introduction, never a second pitch.
+export function continuationPrompt({ greetName, commentText, postCaption, alreadyHasCode, captured, awaitingField }) {
+  return `someone you are ALREADY in an instagram dm conversation with just
+commented on another of ${config.brandName}'s posts. you get ONE private reply
+to that comment. (one message only — no line breaks anywhere; anything after
+the first line is thrown away.)
+${VOICE}
+
+write that one message. requirements:
+- this is a CONTINUATION of an existing conversation, not a first meeting:
+  do NOT introduce yourself, do NOT say "i'm the ai intern", do NOT greet like
+  a stranger. the whole point is "oh hey, we noticed you commented again."
+- ${greetName ? `address them as "${greetName}" or with no name at all — nothing else.` : 'do not address them by any name or handle.'}
+- react to what they actually commented, referencing the post casually
+  (category level or a natural nickname, never a full product title).
+- 1-2 short sentences, statement close, warm but low-key. the shape to beat:
+  "saw you on the cloud mask post too — it's the crowd favorite."
+- ABSOLUTE RULE: this message contains NO offer of any kind. never mention a
+  code, a discount, a percent, an expiry, or a promotion — the post's caption
+  may contain promo wording ("comment X for Y% off"); do NOT repeat or
+  paraphrase it. ${alreadyHasCode ? 'their code already exists in the dm thread.' : awaitingField ? 'the offer already on the table lives in the dm thread, not here.' : ''}
+- ${captured ? 'their contact info is already captured — never re-ask.' : 'do not ask for contact info.'}
+- banned words: "vibe", "vibes", "absolute", "obsessed", "bestie", "queen".
+
+their new comment: "${commentText}"
+${postCaption ? `the post's caption: "${postCaption.slice(0, 140)}"` : ''}${NOTES}
+
+reply with the message text only.`;
+}

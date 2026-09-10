@@ -2,9 +2,10 @@
 // opener → the ONE private reply that comment entitles us to → and from there
 // the thread flows into the same agent loop as any DM.
 import { config } from '../config.js';
-import { upsertThread, getThread, history, claimPrivateReply, recordPrivateReplyText, appendMessage, setCollected } from '../store/db.js';
+import { upsertThread, getThread, history, claimPrivateReply, recordPrivateReplyText, appendMessage, setCollected, getCollected } from '../store/db.js';
 import { fetchProfile, fetchPostContext } from '../instagram/profile.js';
 import { ensureDiscount } from '../shopify/discounts.js';
+import { getDiscount } from '../store/db.js';
 import { getDriver } from '../agent/llm.js';
 import { toBubbles } from '../agent/shorten.js';
 import { sendPrivateReply, replyToComment } from '../instagram/send.js';
@@ -40,7 +41,19 @@ export async function handleNewComment(evt) {
         `context: they just commented "${evt.text}" on another of the brand's posts. ` +
         'this conversation already exists — if they message again, work the comment in naturally; never re-introduce yourself or restart the pitch.');
     }
-    trace('opener', `comment ${evt.commentId} folded into existing thread with @${evt.username}${held ? ' (human-held)' : ''} — no new opener`);
+    // Human takeover means the operator owns ALL outbound — full silence.
+    if (held) {
+      trace('opener', `comment ${evt.commentId} folded into human-held thread with @${evt.username} — no send`);
+      return;
+    }
+    // An engaged customer commenting again gets acknowledged in the ongoing
+    // conversation's voice — never re-introduced, never re-pitched. Pure noise
+    // still gets nothing.
+    if (isNoiseComment(evt.text)) {
+      trace('opener', `repeat comment ${evt.commentId} by @${evt.username} reads as noise — folded silently`);
+      return;
+    }
+    await deliverAcknowledgment(evt).catch((err) => trace('error', `acknowledgment failed: ${err.message}`));
     return;
   }
   // Intent gate: the one private reply this comment entitles us to is spent
@@ -142,4 +155,65 @@ async function deliverOpener({ commentId, igsid, username, text, mediaId, at }) 
       trace('error', `public nudge failed for ${commentId} (opener already sent, continuing): ${err.message}`);
     }
   }
+}
+
+// Noise that should never earn a reply, even from an engaged customer: test
+// strings, link spam, bare emoji. Ambiguity fails toward acknowledging — a
+// warm reply to weak noise is cheaper than ignoring a real person.
+function isNoiseComment(text) {
+  const t = String(text || '').trim();
+  if (t.length < 2) return true;
+  const words = t.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (words.includes('test') || words.includes('testing')) return true;
+  if (t.toLowerCase().includes('http://') || t.toLowerCase().includes('https://')) return true;
+  if (words.join(' ').includes('follow back') || words.join(' ').includes('dm me') || words.join(' ').includes('check my page')) return true;
+  const letters = t.replace(/[^a-z0-9]/gi, '');
+  return letters.length === 0;
+}
+
+// The repeat-comment private reply: acknowledgment only. Same one-shot window
+// and per-comment ledger as an opener; no discount minting, no gate arming.
+async function deliverAcknowledgment({ commentId, igsid, username, text, mediaId, at }) {
+  if (at && Date.now() - at > PRIVATE_REPLY_WINDOW_MS) {
+    trace('window', `repeat comment ${commentId} is outside the 7-day private-reply window — skipping`);
+    return;
+  }
+  if (!claimPrivateReply(commentId, igsid)) {
+    trace('dedupe', `reply already sent for comment ${commentId}`);
+    return;
+  }
+  const post = await fetchPostContext(mediaId);
+  if (post.permalink) setCollected(igsid, 'instagram.comment.link', post.permalink);
+
+  const existingCode = getDiscount(igsid);
+  const message = toBubbles(
+    await getDriver().composeContinuation({
+      greetName: (getCollected(igsid, 'greeting.name') || '').trim() || null,
+      commentText: text,
+      postCaption: post.caption,
+      alreadyHasCode: !!(existingCode && existingCode.expires_at > Date.now()),
+      captured: !!(getCollected(igsid, 'phone') || getCollected(igsid, 'email')),
+      awaitingField: getCollected(igsid, '_awaiting') || null,
+    }),
+  ).join(' ').slice(0, 950);
+  if (!message) { trace('error', `acknowledgment came back empty for comment ${commentId}`); return; }
+  // Deterministic honesty rail: an acknowledgment may NEVER carry an offer.
+  // The model once synthesized "use code DEW for 15% off" out of a caption's
+  // CTA — if anything offer-shaped survives the prompt, replace the whole
+  // message with a safe template instead of sending an invented promise.
+  const offerWords = /(code|discount|promo|percent|% ?off|[0-9]{1,2} ?%|expire)/i;
+  const finalText = offerWords.test(message)
+    ? `saw your new comment — glad it's hitting.`
+    : message;
+  if (finalText !== message) trace('guard', `acknowledgment for ${commentId} carried an offer — replaced with safe template`);
+
+  try {
+    await sendPrivateReply(commentId, finalText);
+  } catch (err) {
+    trace('error', `acknowledgment reply failed for comment ${commentId}: ${err.message}`);
+    return;
+  }
+  recordPrivateReplyText(commentId, finalText);
+  appendMessage(igsid, 'assistant', finalText);
+  trace('opener', `acknowledged repeat comment from @${username}: ${finalText}`);
 }
