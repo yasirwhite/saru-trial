@@ -1,4 +1,4 @@
-// SQLite persistence. Four small tables carry the whole system:
+// SQLite persistence. A handful of small tables carry the whole system:
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -32,6 +32,22 @@ db.exec(`
     created_at INTEGER NOT NULL, PRIMARY KEY (igsid, field));
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER NOT NULL);
+  CREATE TABLE IF NOT EXISTS orders (
+    id TEXT PRIMARY KEY, name TEXT, email TEXT, phone TEXT,
+    total TEXT, currency TEXT, financial_status TEXT, placed_at TEXT,
+    igsid TEXT, simulated INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);
+  CREATE TABLE IF NOT EXISTS shipments (
+    id TEXT PRIMARY KEY, order_id TEXT NOT NULL,
+    tracking_code TEXT, carrier TEXT, tracking_url TEXT, tracker_id TEXT,
+    status TEXT, est_delivery_date TEXT,
+    last_message TEXT, last_city TEXT, last_state TEXT, last_time TEXT,
+    checkpoints TEXT, updated_at INTEGER, created_at INTEGER NOT NULL);
+  CREATE TABLE IF NOT EXISTS shipment_milestones (
+    shipment_id TEXT NOT NULL, milestone TEXT NOT NULL, sent_at INTEGER NOT NULL,
+    PRIMARY KEY (shipment_id, milestone));
+  CREATE INDEX IF NOT EXISTS orders_igsid ON orders (igsid);
+  CREATE INDEX IF NOT EXISTS shipments_order ON shipments (order_id);
+  CREATE INDEX IF NOT EXISTS shipments_tracker ON shipments (tracker_id);
 `);
 
 // Returns true the FIRST time an event id is seen, false on any redelivery.
@@ -87,6 +103,10 @@ export function resetThread(igsid) {
   db.prepare('DELETE FROM messages WHERE igsid = ?').run(igsid);
   db.prepare('DELETE FROM discounts WHERE igsid = ?').run(igsid);
   db.prepare('DELETE FROM collected WHERE igsid = ?').run(igsid);
+  // The order stays (it really happened) but stops being THIS thread's order —
+  // a wiped thread has no captured contact, so it must not still answer
+  // "where's my order?" from a link the customer's messages no longer support.
+  db.prepare('UPDATE orders SET igsid = NULL WHERE igsid = ?').run(igsid);
   db.prepare('UPDATE threads SET last_user_msg_at = NULL WHERE igsid = ?').run(igsid);
 }
 
@@ -146,6 +166,75 @@ export const getDiscount = (igsid) =>
 // Returns how many were purged.
 export const purgeSimulatedDiscounts = () =>
   db.prepare('DELETE FROM discounts WHERE simulated = 1').run().changes;
+
+// --- orders & shipments -------------------------------------------------
+// Shopify's order id is the natural key. Writes are field-by-field (the same
+// shape as upsertThread) because two different sources touch a row: the
+// orders/create webhook writes the customer facts, the matcher writes igsid,
+// and neither may blank what the other stored.
+const ORDER_COLS = ['name', 'email', 'phone', 'total', 'currency', 'financial_status', 'placed_at', 'igsid', 'simulated'];
+export function upsertOrder(id, fields = {}) {
+  const key = String(id);
+  db.prepare('INSERT OR IGNORE INTO orders (id, created_at) VALUES (?, ?)').run(key, Date.now());
+  for (const [k, v] of Object.entries(fields)) {
+    if (v === undefined || v === null) continue;
+    if (!ORDER_COLS.includes(k)) continue;
+    db.prepare(`UPDATE orders SET ${k} = ? WHERE id = ?`).run(v, key);
+  }
+  return getOrder(key);
+}
+
+export const getOrder = (id) => db.prepare('SELECT * FROM orders WHERE id = ?').get(String(id));
+export const linkOrderToThread = (id, igsid) =>
+  db.prepare('UPDATE orders SET igsid = ? WHERE id = ?').run(igsid, String(id));
+// The customer's most recent linked order — what "where's my order?" means.
+export const getOrderForThread = (igsid) =>
+  db.prepare('SELECT * FROM orders WHERE igsid = ? ORDER BY created_at DESC LIMIT 1').get(igsid);
+
+// Customer matching. The gate stores 'phone' as E.164 and 'email' lowercased,
+// so the caller normalizes an incoming order to those exact shapes and this is
+// a plain equality lookup. A NULL argument matches nothing (SQL, not a bug):
+// an order with no email can never collide with a thread that has no email.
+// Email wins over phone when both hit — it's the more unique of the two.
+export function findThreadByContact({ email = null, phone = null } = {}) {
+  const rows = db.prepare(`
+    SELECT igsid, field, value FROM collected
+    WHERE (field = 'email' AND value = ?) OR (field = 'phone' AND value = ?)
+    ORDER BY created_at DESC`).all(email, phone);
+  return rows.find((r) => r.field === 'email') || rows[0] || null;
+}
+
+const SHIPMENT_COLS = ['order_id', 'tracking_code', 'carrier', 'tracking_url', 'tracker_id',
+  'status', 'est_delivery_date', 'last_message', 'last_city', 'last_state', 'last_time', 'checkpoints'];
+export function upsertShipment(id, fields = {}) {
+  const key = String(id);
+  db.prepare('INSERT OR IGNORE INTO shipments (id, order_id, created_at) VALUES (?, ?, ?)')
+    .run(key, String(fields.order_id ?? ''), Date.now());
+  for (const [k, v] of Object.entries(fields)) {
+    if (v === undefined || v === null) continue;
+    if (!SHIPMENT_COLS.includes(k)) continue;
+    db.prepare(`UPDATE shipments SET ${k} = ? WHERE id = ?`).run(v, key);
+  }
+  db.prepare('UPDATE shipments SET updated_at = ? WHERE id = ?').run(Date.now(), key);
+  return getShipment(key);
+}
+
+export const getShipment = (id) => db.prepare('SELECT * FROM shipments WHERE id = ?').get(String(id));
+export const getShipmentByTracker = (trackerId) =>
+  db.prepare('SELECT * FROM shipments WHERE tracker_id = ?').get(String(trackerId));
+export const getShipmentByTrackingCode = (code) =>
+  db.prepare('SELECT * FROM shipments WHERE tracking_code = ? ORDER BY created_at DESC LIMIT 1').get(String(code));
+export const getShipmentForOrder = (orderId) =>
+  db.prepare('SELECT * FROM shipments WHERE order_id = ? ORDER BY created_at DESC LIMIT 1').get(String(orderId));
+
+// One-shot ledger, exactly like claimPrivateReply: true the FIRST time this
+// shipment reaches this milestone, false forever after. A carrier that reports
+// 'in_transit' on ten consecutive scans still buys the customer one DM.
+export function claimMilestone(shipmentId, milestone) {
+  const r = db.prepare('INSERT OR IGNORE INTO shipment_milestones (shipment_id, milestone, sent_at) VALUES (?, ?, ?)')
+    .run(String(shipmentId), milestone, Date.now());
+  return r.changes === 1;
+}
 
 export const saveDiscount = (igsid, d) =>
   db.prepare('INSERT OR REPLACE INTO discounts (igsid, code, percent, simulated, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)')

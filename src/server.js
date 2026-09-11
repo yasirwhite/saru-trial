@@ -5,6 +5,8 @@ import { verifySignature, handleChallenge } from './webhooks/verify.js';
 import { routeWebhook } from './webhooks/router.js';
 import { mountPlayground } from './sim/playground.js';
 import { mountShopifyOAuth } from './shopify/oauth.js';
+import { mountShopifyWebhooks } from './webhooks/shopify.js';
+import { mountEasypostWebhooks } from './webhooks/easypost.js';
 import { mountAdmin } from './admin.js';
 import { mountOperator } from './operator.js';
 import { listTools } from './shopify/mcp-client.js';
@@ -38,6 +40,11 @@ app.post('/webhooks/instagram', (req, res) => {
     routeWebhook(req.body).catch((err) => trace('error', `webhook processing failed: ${err.message}`)),
   );
 });
+
+// Shipment tracking: orders/fulfillments in from the store (hmac-verified),
+// carrier scans in from EasyPost (re-fetched, never trusted from the body).
+mountShopifyWebhooks(app); // POST /webhooks/shopify
+mountEasypostWebhooks(app); // POST /webhooks/easypost
 
 mountPlayground(app);
 mountShopifyOAuth(app);

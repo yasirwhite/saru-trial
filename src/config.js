@@ -74,6 +74,22 @@ export const config = {
   shopifyAdminStore: process.env.SHOPIFY_ADMIN_STORE || '',
   shopifyAdminToken: process.env.SHOPIFY_ADMIN_TOKEN || '',
 
+  // --- shipment tracking -------------------------------------------------
+  // Orders are a SEPARATE grant from discounts: the admin token above is denied
+  // protected customer data (ACCESS_DENIED on any order read), so order reads
+  // and webhook registration use a custom app's token with read_orders /
+  // read_fulfillments. Unset → every order path is a traced no-op.
+  shopifyOrdersToken: process.env.SHOPIFY_ORDERS_TOKEN || '',
+  // The secret Shopify signs webhook bodies with (base64 HMAC-SHA256 over the
+  // raw bytes). Unset → /webhooks/shopify refuses every non-simulated call with
+  // 503 rather than ingesting data nobody verified.
+  shopifyWebhookSecret: process.env.SHOPIFY_WEBHOOK_SECRET || '',
+  // EasyPost tracker API — checkpoint-level carrier telemetry. Unset → trackers
+  // are simulated locally and only loopback tracker events are accepted.
+  easypostApiKey: process.env.EASYPOST_API_KEY || '',
+  // Where Shopify and EasyPost reach us (the ngrok ingress), for registration.
+  publicBaseUrl: process.env.PUBLIC_BASE_URL || '',
+
   // Protects the /admin dashboard on the public tunnel. Empty = local dev only.
   adminKey: process.env.ADMIN_KEY || '',
 

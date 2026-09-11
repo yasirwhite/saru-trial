@@ -5,9 +5,12 @@ import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import Database from 'better-sqlite3';
+import { simTrackerId } from '../src/shipping/easypost.js';
 
 const PORT = 3999;
 const SECRET = 'smoke-secret';
+const SHOP_SECRET = 'smoke-shopify-secret';
 const BASE = `http://127.0.0.1:${PORT}`;
 const DB = 'data/smoke.db';
 
@@ -57,6 +60,10 @@ const server = spawn(process.execPath, ['src/server.js'], {
     ...process.env, PORT: String(PORT), DB_PATH: DB, TRANSPORT: 'sim', LLM_DRIVER: 'mock',
     META_APP_SECRET: SECRET, META_VERIFY_TOKEN: 'smoke-verify', IG_ACCESS_TOKEN: '', OPENAI_API_KEY: '',
     ADMIN_KEY: 'smoke-admin-key',
+    // This server HAS a shopify webhook secret (so the hmac path is exercised);
+    // the gated server below has none (so the 503 refusal is exercised). Neither
+    // has an EasyPost key: trackers stay simulated on both.
+    SHOPIFY_WEBHOOK_SECRET: SHOP_SECRET, EASYPOST_API_KEY: '', SHOPIFY_ORDERS_TOKEN: '',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -158,6 +165,7 @@ try {
       ...process.env, PORT: '3998', DB_PATH: DB2, TRANSPORT: 'sim', LLM_DRIVER: 'mock',
       META_APP_SECRET: SECRET, META_VERIFY_TOKEN: 'smoke-verify', IG_ACCESS_TOKEN: '', OPENAI_API_KEY: '',
       PHONE_GATE: '1', FEATURED_PRODUCT: 'hoodie',
+      SHOPIFY_WEBHOOK_SECRET: '', EASYPOST_API_KEY: '', SHOPIFY_ORDERS_TOKEN: '',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -259,6 +267,119 @@ try {
   ok(!!junkOpener, 'a meme-named commenter still earns an opener');
   ok(!/cloud|mask|stan|dark|xx|@/i.test(junkOpener),
     'joke profile name is never echoed back and no handle greeting — nameless opener');
+
+  // The gated server above captured a real phone number through the gate
+  // (+13105550142) — that captured contact is the ONLY thing joining a Shopify
+  // order to an Instagram thread, so the whole shipment flow runs there.
+  console.log('\nshipment tracking: shopify → easypost → milestone dms');
+  const GATED_IGSID = 'sim-user-maya.runs';
+  const ORDER_ID = 550000001, FULFILLMENT_ID = 660000001;
+  const TRACKING = '9400111899223344556677';
+  const TRACKER = simTrackerId(TRACKING);
+  const shopSign = (raw) => crypto.createHmac('sha256', SHOP_SECRET).update(raw).digest('base64');
+  const shopPost = async (baseUrl, topic, body, { sig = 'good', simulated = false } = {}) => {
+    const raw = Buffer.from(JSON.stringify(body));
+    const headers = { 'Content-Type': 'application/json', 'X-Shopify-Topic': topic };
+    if (simulated) headers['X-Saru-Simulated'] = '1';
+    if (sig === 'good') headers['X-Shopify-Hmac-Sha256'] = shopSign(raw);
+    // same length as a real base64 sha256, so timingSafeEqual is actually reached
+    if (sig === 'bad') headers['X-Shopify-Hmac-Sha256'] = Buffer.from('nope'.repeat(8)).toString('base64');
+    return (await fetch(`${baseUrl}/webhooks/shopify`, { method: 'POST', headers, body: raw })).status;
+  };
+  const order = (extra = {}) => ({
+    id: ORDER_ID, name: '#1042', order_number: 1042, total_price: '68.00', currency: 'USD',
+    financial_status: 'paid', created_at: new Date().toISOString(), ...extra,
+  });
+
+  console.log('  trust boundary');
+  ok(await shopPost(BASE, 'orders/create', order({ email: 'forged@example.com' }), { sig: 'bad' }) === 401,
+    'shopify webhook with a forged hmac → 401, order not ingested');
+  ok(await shopPost(BASE2, 'orders/create', order({ email: 'unverified@example.com' })) === 503,
+    'shopify webhook with SHOPIFY_WEBHOOK_SECRET unset → 503, nothing unverified ingested');
+  ok(await shopPost(BASE, 'orders/create', order({ email: 'stranger@example.com' })) === 200,
+    'shopify webhook with a valid hmac → 200');
+  // The simulated door is loopback + an explicit header, and it is the path the
+  // demo driver (scripts/simulate-shipment.mjs) uses.
+  ok(await shopPost(BASE2, 'orders/create',
+    order({ email: 'maya.shipping@example.com', phone: '(310) 555-0142' }), { simulated: true }) === 200,
+    'simulated order from loopback bypasses hmac → 200');
+
+  console.log('  customer matching');
+  let t2 = (await state2()).traces;
+  ok(t2.some((t) => t.kind === 'order' && /MATCH/.test(t.text) && t.text.includes(GATED_IGSID)),
+    'order matched the thread that captured a phone through the gate (E.164 normalized)');
+
+  ok(await shopPost(BASE2, 'fulfillments/create', {
+    id: FULFILLMENT_ID, order_id: ORDER_ID, status: 'success',
+    tracking_company: 'USPS', tracking_number: TRACKING,
+  }, { simulated: true }) === 200, 'fulfillments/create accepted');
+  t2 = (await state2()).traces;
+  ok(t2.some((t) => t.kind === 'easypost' && t.text.includes(TRACKER)),
+    'no EASYPOST_API_KEY → tracker simulated locally instead of failing');
+  ok(t2.some((t) => t.kind === 'shipment' && /tracker .* watching/.test(t.text)),
+    'tracker id stored on the shipment row');
+
+  console.log('  carrier scans → milestone dms');
+  const scans = [];
+  const epPost = async (status, message, city, state) => {
+    scans.push({
+      object: 'TrackingDetail', status, message, datetime: new Date().toISOString(),
+      tracking_location: { city, state, country: 'US' },
+    });
+    return (await fetch(`${BASE2}/webhooks/easypost`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        description: 'tracker.updated',
+        result: {
+          object: 'Tracker', id: TRACKER, status, tracking_code: TRACKING, carrier: 'USPS',
+          est_delivery_date: '2026-09-14', public_url: `https://track.easypost.com/djE6${TRACKER.slice(-8)}`,
+          tracking_details: scans,
+        },
+      }),
+    })).status;
+  };
+  const dmCount = async () => (await state2()).outbound.filter((o) => o.kind === 'dm').length;
+  const dmTail = async (n) => (await state2()).outbound.filter((o) => o.kind === 'dm').slice(n).map((o) => o.text).join('\n');
+
+  let dn = await dmCount();
+  await epPost('pre_transit', 'shipping label created', 'Los Angeles', 'CA');
+  ok((await dmCount()) === dn, 'pre_transit is not a milestone — no dm on every scan');
+
+  await epPost('in_transit', 'departed usps regional facility', 'Bell Gardens', 'CA');
+  ok((await dmCount()) === dn + 1, 'first in_transit → exactly one "on its way" dm');
+  const firstDm = await dmTail(dn);
+  ok(/on its way/i.test(firstDm) && /bell gardens/i.test(firstDm), 'the dm quotes the real latest scan');
+  ok(!/(code|discount|promo|% ?off|expire)/i.test(firstDm), 'a milestone dm never carries an offer');
+
+  dn = await dmCount();
+  await epPost('in_transit', 'arrived at usps facility', 'Phoenix', 'AZ');
+  ok((await dmCount()) === dn, 'a second in_transit scan fires NO second dm (transitions, not scans)');
+
+  await epPost('out_for_delivery', 'out for delivery, expected by 8:00pm', 'Austin', 'TX');
+  ok((await dmCount()) === dn + 1, 'out_for_delivery → one dm');
+
+  console.log('  order_status tool');
+  let gn3 = (await state2()).outbound.length;
+  await post2(dm('g-mid-ship', "hey where's my order?"));
+  let gs = await settled2(gn3);
+  ok(gs.traces.some((t) => t.kind === 'tool' && /order_status/.test(t.text)), 'the model called order_status');
+  const shipReply = gs.outbound.slice(gn3).map((o) => o.text).join('\n');
+  // ('#' is stripped by the markdown scrubber in toBubbles — 1042 is the order)
+  ok(/\b1042\b/.test(shipReply) && /austin/i.test(shipReply), 'reply carries the order number and the latest checkpoint');
+  ok(/track\.easypost\.com|usps\.com/.test(shipReply), 'reply carries a tracking link');
+
+  console.log('  human takeover');
+  // The portal owns response_mode; the bridge mirrors it into settings. With no
+  // portal here, write the same key the bridge would (WAL makes this safe).
+  const gdb = new Database(DB2);
+  gdb.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)')
+    .run(`mode:${GATED_IGSID}`, 'human', Date.now());
+  gdb.close();
+  dn = await dmCount();
+  await epPost('delivered', 'delivered, front door/porch', 'Austin', 'TX');
+  ok((await dmCount()) === dn, 'delivered milestone is SKIPPED while a human holds the thread');
+  ok((await state2()).traces.some((t) => t.kind === 'mode' && /dm skipped/.test(t.text)),
+    'the skip is traced, not silent');
 
   console.log(`\n${failed === 0 ? 'ALL GREEN' : 'FAILURES'} — ${passed} passed, ${failed} failed`);
   process.exitCode = failed === 0 ? 0 : 1;

@@ -11,7 +11,9 @@
     "evals": "node scripts/evals.mjs",
     "evals:report": "node evals/report.mjs",
     "demo:reset": "node scripts/reset.js",
-    "meta:subscribe": "node --env-file-if-exists=.env scripts/subscribe.js"
+    "demo:shipment": "node --env-file-if-exists=.env scripts/simulate-shipment.mjs",
+    "meta:subscribe": "node --env-file-if-exists=.env scripts/subscribe.js",
+    "shopify:webhooks": "node --env-file-if-exists=.env scripts/register-shopify-webhooks.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0",

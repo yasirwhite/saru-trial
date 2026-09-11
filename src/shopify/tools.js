@@ -4,6 +4,7 @@
 import { listTools, callTool } from './mcp-client.js';
 import { ensureDiscount, applyDiscountToUrl } from './discounts.js';
 import { getDiscount } from '../store/db.js';
+import { orderStatusFor } from '../shipping/status.js';
 import { trace } from '../sim/trace.js';
 
 const RESULT_CAP = 6000; // keep giant tool payloads from flooding the context
@@ -54,6 +55,20 @@ const NATIVE_TOOLS = [
       description:
         "Get this customer's personal discount code, creating one if they don't have one yet. The terms are fixed by the brand.",
       // no arguments on purpose: the model cannot set percent, expiry, or limits
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'order_status',
+      description:
+        "Look up THIS customer's order and where their package physically is right now: order number, "
+        + 'shipment status, the carrier\'s latest scan (message, city, time), the estimated delivery date '
+        + 'and a tracking link. Call it for any "where\'s my order", "did it ship", "when does it arrive" '
+        + 'question. If no order is linked to this conversation it says so — say that plainly rather than guessing.',
+      // no arguments: the order is whichever one is linked to this thread, so
+      // the model cannot look up a stranger's order by typing a number.
       parameters: { type: 'object', properties: {}, additionalProperties: false },
     },
   },
@@ -117,6 +132,7 @@ export async function buildToolset(ctx) {
           note: 'terms are fixed by the brand and cannot be changed',
         });
       }
+      if (name === 'order_status') return JSON.stringify(orderStatusFor(ctx.igsid));
       if (!mcpNames.has(name)) return `error: unknown tool ${name}`;
       if (name.includes('update_cart')) {
         const bad = unknownId(args);

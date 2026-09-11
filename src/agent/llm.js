@@ -1,7 +1,7 @@
 // The LLM behind one interface so the loop is provider-agnostic and testable:
 import OpenAI from 'openai';
 import { config } from '../config.js';
-import { openerPrompt, continuationPrompt } from './prompts.js';
+import { openerPrompt, continuationPrompt, shipmentDmPrompt } from './prompts.js';
 import { trace } from '../sim/trace.js';
 
 // --- openai ------------------------------------------------------------
@@ -37,6 +37,11 @@ const openaiDriver = {
   // Repeat-comment acknowledgment — caption-only, one fast call.
   async composeContinuation(args) {
     const msg = await this.complete([{ role: 'user', content: continuationPrompt(args) }], []);
+    return (msg.content || '').trim();
+  },
+  // The unprompted shipment milestone DM.
+  async composeShipmentDm(args) {
+    const msg = await this.complete([{ role: 'user', content: shipmentDmPrompt(args) }], []);
     return (msg.content || '').trim();
   },
 };
@@ -78,6 +83,19 @@ const mockDriver = {
     // Round 2+: a tool already answered — chain to the next tool or reply.
     if (toolResults.length) {
       const text = toolResults.map((m) => m.content).join('\n');
+      // order_status is self-describing JSON — answer straight from it, and
+      // never pretend to an order the tool says isn't linked.
+      const order = toolResults
+        .map((m) => { try { const d = JSON.parse(m.content); return d && 'linked' in d ? d : null; } catch { return null; } })
+        .find(Boolean);
+      if (order) {
+        if (!order.linked) return say("i don't see an order tied to this chat yet — what email did you use at checkout?");
+        if (!order.shipment) return say(`${order.order.name} is paid and being packed — no tracking scan yet`);
+        const sh = order.shipment;
+        const where = sh.latest_scan?.city ? ` — last scan ${sh.latest_scan.city.toLowerCase()}` : '';
+        const eta = sh.estimated_delivery ? `, eta ${sh.estimated_delivery}` : '';
+        return say(`${order.order.name} is ${String(sh.status).replace(/_/g, ' ')}${where}${eta}\n${sh.tracking_url || ''}`.trim());
+      }
       // real cart checkout urls have a /cart/c/<id> path.
       const checkout = text.match(/https?:\/\/[^\s"'\\]*\/cart\/c\/[^\s"'\\]*/i);
       if (checkout) return say(`cart's ready — ${checkout[0]}`);
@@ -103,6 +121,10 @@ const mockDriver = {
 
     // Round 1: pick a tool from the user's intent. A cart ask starts with a
     // catalog search (we need a variant id) and chains to update_cart above.
+    // Shipment questions go FIRST: "where's my order" and "has it shipped" both
+    // contain words the cart and policy branches below would otherwise grab.
+    if (/where.{0,12}(my |the )?(order|package|parcel)|track(ing)?\b|shipped yet|has it shipped|delivery status|when.{0,20}(arrive|get here|delivered)/.test(lastUser)
+      && find('order_status')) return call(find('order_status'), {});
     if (/discount|code|deal/.test(lastUser) && find('issue_discount')) return call(find('issue_discount'), {});
     if (/cart|buy|checkout|order/.test(lastUser) && find('catalog')) {
       // resolve "it" the way a real model would: from the thread's last ask
@@ -129,6 +151,18 @@ const mockDriver = {
   async composeContinuation({ greetName, commentText }) {
     const who = greetName ? `${greetName} ` : '';
     return `saw your comment ${who}("${(commentText || '').slice(0, 40)}") — glad it's still hitting.`;
+  },
+  // Deterministic milestone DM: built only from facts that were actually
+  // scanned, and structurally incapable of carrying an offer.
+  async composeShipmentDm({ milestone, orderName, latest, eta }) {
+    const where = latest?.city ? ` — last scan ${String(latest.city).toLowerCase()}` : '';
+    if (milestone === 'out_for_delivery') {
+      return `${orderName} is out for delivery today${where}. keep an eye on the door`;
+    }
+    if (milestone === 'delivered') {
+      return `${orderName} just got delivered${where}. hope it's everything you wanted`;
+    }
+    return `${orderName} is on its way${where}${eta ? `, should land ${eta}` : ''}`;
   },
 };
 
