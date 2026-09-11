@@ -7,8 +7,12 @@ import { mountPlayground } from './sim/playground.js';
 import { mountShopifyOAuth } from './shopify/oauth.js';
 import { mountShopifyWebhooks } from './webhooks/shopify.js';
 import { mountEasypostWebhooks } from './webhooks/easypost.js';
+import { mountAftershipWebhooks } from './webhooks/aftership.js';
+import { providerHealth } from './shipping/provider.js';
 import { mountAdmin } from './admin.js';
+import { mountConsole } from './console/index.js';
 import { mountOperator } from './operator.js';
+import { sweepEscalations } from './flows/escalation.js';
 import { listTools } from './shopify/mcp-client.js';
 import { startBridge } from './store/supabase-bridge.js';
 import { purgeSimulatedDiscounts } from './store/db.js';
@@ -26,7 +30,13 @@ app.use((req, _res, next) => {
   next();
 });
 
-app.get('/health', (_req, res) => res.json({ ok: true, transport: config.transport, llm: config.llmDriver }));
+// `shipping` is the scan-feed status at a glance: which provider is carrying
+// packages right now, whether the PREFERRED one is still answering, and the
+// last refusal it gave. A healthy:false with shipping_provider naming the
+// fallback means the chain did its job and someone should go look at the key.
+app.get('/health', (_req, res) => res.json({
+  ok: true, transport: config.transport, llm: config.llmDriver, shipping: providerHealth(),
+}));
 app.get('/webhooks/instagram', handleChallenge);
 
 app.post('/webhooks/instagram', (req, res) => {
@@ -42,18 +52,22 @@ app.post('/webhooks/instagram', (req, res) => {
 });
 
 // Shipment tracking: orders/fulfillments in from the store (hmac-verified),
-// carrier scans in from EasyPost (re-fetched, never trusted from the body).
+// carrier scans in from whichever feed owns the package — both doors re-fetch
+// from the provider's API and never trust what the event body claims.
 mountShopifyWebhooks(app); // POST /webhooks/shopify
 mountEasypostWebhooks(app); // POST /webhooks/easypost
+mountAftershipWebhooks(app); // POST /webhooks/aftership
 
 mountPlayground(app);
 mountShopifyOAuth(app);
 mountAdmin(app);
+mountConsole(app); // GET /console — the capability test console (admin-key gated)
 mountOperator(app); // POST /operator/send — the Kosha portal's human-takeover door
 
 app.listen(config.port, () => {
   trace('info', `listening on http://127.0.0.1:${config.port} — transport=${config.transport} llm=${config.llmDriver}`);
   trace('info', `playground: http://127.0.0.1:${config.port}/sim`);
+  trace('info', `capability console: http://127.0.0.1:${config.port}/console?key=<ADMIN_KEY>`);
   // Stale simulated codes are cleared at boot, but only once we can actually
   // replace them: without admin creds a purge would just re-mint another fake
   // code under a different name, which is worse than the one already promised.
@@ -64,6 +78,9 @@ app.listen(config.port, () => {
     trace('discount', 'simulated-code purge skipped — no shopify admin credentials to mint real replacements with');
   }
   startBridge(); // Kosha mirror + goal/mode polling; no-op without DATABASE_URL
+  // A restart must not eat the promise an escalation made: any flag still open,
+  // still unanswered and past its threshold gets its courtesy dm now.
+  sweepEscalations();
   listTools()
     .then((tools) => trace('info', `shopify mcp connected (${new URL(config.mcpUrl).host}): ${tools.map((t) => t.name).join(', ')}`))
     .catch((err) => trace('error', `shopify mcp unreachable: ${err.message}`));

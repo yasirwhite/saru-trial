@@ -87,11 +87,56 @@ export const config = {
   // EasyPost tracker API — checkpoint-level carrier telemetry. Unset → trackers
   // are simulated locally and only loopback tracker events are accepted.
   easypostApiKey: process.env.EASYPOST_API_KEY || '',
-  // Where Shopify and EasyPost reach us (the ngrok ingress), for registration.
+  // AfterShip tracker API — the same telemetry across ~2,000 couriers, and the
+  // FIRST link in the provider chain (src/shipping/provider.js): present →
+  // packages register here, and EasyPost becomes the failover behind it.
+  aftershipApiKey: process.env.AFTERSHIP_API_KEY || '',
+  // Version-pinned base url. AfterShip ships breaking API versions by date, so
+  // the pin is explicit rather than "latest"; overridable so staging (and
+  // scripts/smoke.js, which points it at a local mock to prove the failover
+  // path) can aim the driver somewhere else without touching code.
+  aftershipApiBase: process.env.AFTERSHIP_API_BASE || 'https://api.aftership.com/tracking/2025-07',
+  // The secret AfterShip signs webhook bodies with (base64 HMAC-SHA256 over the
+  // raw bytes, header `aftership-hmac-sha256`). Unset → a delivery is still
+  // accepted, but ONLY to learn a tracking id that is then re-fetched from the
+  // API as truth; nothing from the body is ever written. See webhooks/aftership.js.
+  aftershipWebhookSecret: process.env.AFTERSHIP_WEBHOOK_SECRET || '',
+  // Where Shopify and the carrier feeds reach us (the ngrok ingress).
   publicBaseUrl: process.env.PUBLIC_BASE_URL || '',
 
   // Protects the /admin dashboard on the public tunnel. Empty = local dev only.
   adminKey: process.env.ADMIN_KEY || '',
+
+  // --- agent-initiated escalation ----------------------------------------
+  // How long an escalation flag may sit unanswered before the agent sends ONE
+  // courtesy dm ("still on your question — checking with the team"). Minutes,
+  // fractional allowed so the capability console and smoke can watch it happen
+  // in seconds instead of waiting out the real threshold.
+  escalationFollowupMin: (() => {
+    const v = parseFloat(process.env.ESCALATION_FOLLOWUP_MIN);
+    return Number.isFinite(v) && v > 0 ? v : 20;
+  })(),
+
+  // --- capability console -------------------------------------------------
+  // /console drives a DEDICATED sim child — a second copy of this server on
+  // loopback with TRANSPORT=sim — so the live server can keep talking to Meta
+  // while the founder watches the agent handle scripted scenarios. These knobs
+  // exist so scripts/smoke.js can run the same console cheaply and
+  // deterministically (mock driver, its own port and db).
+  // Set by src/console/child.js on the sim child it spawns. The child seeds
+  // INVENTED orders and tracking numbers to judge the agent's behavior, so it
+  // must never reach a live carrier feed — that would file fiction against a
+  // real AfterShip/EasyPost account. The child already blanks EASYPOST_API_KEY;
+  // this marker makes the rule hold for every provider in the chain, present
+  // and future, without each one having to be blanked by name.
+  consoleChild: process.env.SARU_CONSOLE_CHILD === '1',
+  consolePort: int(process.env.CONSOLE_PORT, 3901),
+  consoleDbPath: process.env.CONSOLE_DB_PATH || 'data/console.db',
+  consoleLlmDriver: process.env.CONSOLE_LLM_DRIVER || 'openai',
+  consoleFollowupMin: (() => {
+    const v = parseFloat(process.env.CONSOLE_FOLLOWUP_MIN);
+    return Number.isFinite(v) && v > 0 ? v : 0.15; // 9s — long enough to be a wait, short enough to watch
+  })(),
 
   dbPath: process.env.DB_PATH || 'data/concierge.db',
 

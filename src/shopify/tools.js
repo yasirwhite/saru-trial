@@ -5,9 +5,15 @@ import { listTools, callTool } from './mcp-client.js';
 import { ensureDiscount, applyDiscountToUrl } from './discounts.js';
 import { getDiscount } from '../store/db.js';
 import { orderStatusFor } from '../shipping/status.js';
+import { flagForHuman } from '../flows/escalation.js';
 import { trace } from '../sim/trace.js';
 
 const RESULT_CAP = 6000; // keep giant tool payloads from flooding the context
+// How much of a tool's ANSWER is traced. The trace is what /console's checks
+// read to decide whether a reply was grounded — a price or a link that appears
+// in no tool result is an invented one — so it has to carry enough of the
+// payload to prove it, and little enough to stay a demo lens.
+const TRACE_RESULT_CAP = 2500;
 
 // Catalog results arrive with full HTML descriptions repeated per variant and
 // can run tens of KB.
@@ -63,13 +69,43 @@ const NATIVE_TOOLS = [
     function: {
       name: 'order_status',
       description:
-        "Look up THIS customer's order and where their package physically is right now: order number, "
-        + 'shipment status, the carrier\'s latest scan (message, city, time), the estimated delivery date '
-        + 'and a tracking link. Call it for any "where\'s my order", "did it ship", "when does it arrive" '
-        + 'question. If no order is linked to this conversation it says so — say that plainly rather than guessing.',
+        "Everything about THIS customer's order, in one call: order number, payment status, the items "
+        + 'they bought, the discount codes actually used at checkout (an empty list means NO code was '
+        + "used — a real answer, not a gap), the shipping address on file, plus where the package "
+        + "physically is right now — shipment status, the carrier's latest scan (message, city, time), "
+        + 'the estimated delivery date and a tracking link. Call it for "where\'s my order", "did it '
+        + 'ship", "when does it arrive", "what address do you have on file", "did i use my code / the '
+        + 'qr code", "what did i order". It resolves the order from THIS conversation only and takes no '
+        + "arguments: you cannot look up anyone else's order, so if they quote an order number that "
+        + 'isn\'t theirs, say you can only see the order linked to this chat. If no order is linked it '
+        + 'says so — say that plainly rather than guessing.',
       // no arguments: the order is whichever one is linked to this thread, so
       // the model cannot look up a stranger's order by typing a number.
       parameters: { type: 'object', properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'escalate_to_human',
+      description:
+        'Flag this conversation for a human teammate. Call it when: they ask to talk to a person; '
+        + 'something went wrong that your tools cannot fix (a damaged, missing or wrong order, a refund, '
+        + 'a complaint); or they ask a question whose answer is NOT in any tool result you got — missing '
+        + 'product data, an ingredient list you could not retrieve, anything you would otherwise have to '
+        + 'guess at. Never guess and never dead-end them with "i don\'t have that info" on its own. '
+        + 'After calling this, send ONE short message saying you\'re pulling in the team and a human will '
+        + 'reply right here — no offers, no discount, no arguing. You keep answering everything else '
+        + 'normally; this does not hand the thread over, it raises a flag a person picks up.',
+      parameters: {
+        type: 'object',
+        properties: {
+          question: { type: 'string', description: "the customer's actual question or problem, in their words" },
+          reason: { type: 'string', description: 'one short line for the teammate, e.g. "missing product data: ingredients for daily dew serum" or "third damaged order, wants a person"' },
+        },
+        required: ['question', 'reason'],
+        additionalProperties: false,
+      },
     },
   },
 ];
@@ -117,8 +153,17 @@ export async function buildToolset(ctx) {
   const unknownId = (args) =>
     (args.add_items || []).map((i) => i.product_variant_id).find((id) => id && !seenVariantIds.has(id));
 
-  // Runs one tool call.
+  // Runs one tool call, and traces what came BACK as well as what was asked:
+  // "is this reply grounded?" is a question about the RESULT, and the capability
+  // console (and the playground's trace pane) can only answer it if the result
+  // was written down.
   async function run(name, argsJson) {
+    const out = await runTool(name, argsJson);
+    trace('tool-result', `${name} ${String(out).slice(0, TRACE_RESULT_CAP)}`);
+    return out;
+  }
+
+  async function runTool(name, argsJson) {
     let args = {};
     try { args = argsJson ? JSON.parse(argsJson) : {}; } catch { /* model sent bad JSON; run with {} */ }
     trace('tool', `${name} ${argsJson || '{}'}`);
@@ -132,7 +177,29 @@ export async function buildToolset(ctx) {
           note: 'terms are fixed by the brand and cannot be changed',
         });
       }
-      if (name === 'order_status') return JSON.stringify(orderStatusFor(ctx.igsid));
+      if (name === 'order_status') {
+        // The tool declares no parameters, but a model that just read "order
+        // #1019" in the customer's message may still try to pass one. Dropping
+        // it is the guardrail: the lookup key is the thread, always.
+        if (Object.keys(args).length) {
+          trace('rejected', `order_status called with ${JSON.stringify(args).slice(0, 120)} — arguments ignored, the order is resolved from thread ${ctx.igsid} alone`);
+        }
+        return JSON.stringify(await orderStatusFor(ctx.igsid));
+      }
+      if (name === 'escalate_to_human') {
+        // A flag, not a transfer: the thread keeps running and the agent keeps
+        // answering everything else. Handing the thread OVER stays the portal
+        // operator's deliberate act (mode:<igsid>), never the model's.
+        const flag = flagForHuman(ctx.igsid, { reason: args.reason, question: args.question });
+        return JSON.stringify({
+          flagged: true,
+          already_open: !!flag.duplicate,
+          reason: flag.reason,
+          note: 'a teammate has been flagged and will pick this up in this thread. send exactly ONE short '
+            + 'message telling them that — a person will reply right here. no offer, no discount, no apology '
+            + 'spiral, no promise about timing. do not answer the flagged question yourself.',
+        });
+      }
       if (!mcpNames.has(name)) return `error: unknown tool ${name}`;
       if (name.includes('update_cart')) {
         const bad = unknownId(args);

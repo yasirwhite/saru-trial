@@ -55,6 +55,19 @@ const call = (name, args) => ({
 });
 const say = (content) => ({ role: 'assistant', content });
 
+// What an order question looks like, in the four shapes customers actually
+// send. All of them route to the SAME tool — that's the point of one rich
+// order_status — and the answer branches below read the same text again to
+// decide which part of the result to quote.
+const ASKS_SHIPMENT = /where.{0,12}(my |the )?(order|package|parcel)|track(ing)?\b|shipped yet|has it shipped|delivery status|when.{0,20}(arrive|get here|delivered)/;
+const ASKS_ADDRESS = /(address|shipping to).{0,24}(on file|do you have|have for me|you have|i have)|what.{0,12}address|address.{0,8}(for|on).{0,12}(my|that|this|order)|where.{0,12}(is it|are you) (ship|send)/;
+const ASKS_CODE = /did i (use|apply|have).{0,20}(code|qr|discount)|(qr|discount|promo)\s?code.{0,28}(use|used|applied|on that|in that|on my|on this)|code.{0,12}(on|in) (that|this|my) (order|purchase)/;
+const ASKS_ITEMS = /what did i (order|buy|get)|what.{0,10}(was|is|did i have) in (my|that|the) order|items in (my|that|the) order/;
+const isOrderQuestion = (t) => ASKS_SHIPMENT.test(t) || ASKS_ADDRESS.test(t) || ASKS_CODE.test(t) || ASKS_ITEMS.test(t);
+// Asking for a person. Deliberately narrow — a mock that escalated on the word
+// "help" would never exercise anything else.
+const WANTS_HUMAN = /\b(real|actual) (person|human)\b|\bspeak (to|with) (a|an|someone)\b|\btalk to (a|an|someone)\b|\bhuman\b|\bmanager\b|\bsomeone from the team\b/;
+
 // Walk a search_catalog result for a product/variant to act on.
 const pickVariant = (raw) => {
   try {
@@ -83,6 +96,11 @@ const mockDriver = {
     // Round 2+: a tool already answered — chain to the next tool or reply.
     if (toolResults.length) {
       const text = toolResults.map((m) => m.content).join('\n');
+      // A raised escalation flag ends the turn in ONE message, by construction:
+      // no offer, no argument, no second run at the question.
+      if (/"flagged"\s*:\s*true/.test(text)) {
+        return say('looping in the team on this one — someone will pick it up right here');
+      }
       // order_status is self-describing JSON — answer straight from it, and
       // never pretend to an order the tool says isn't linked.
       const order = toolResults
@@ -90,11 +108,33 @@ const mockDriver = {
         .find(Boolean);
       if (order) {
         if (!order.linked) return say("i don't see an order tied to this chat yet — what email did you use at checkout?");
-        if (!order.shipment) return say(`${order.order.name} is paid and being packed — no tracking scan yet`);
+        const o = order.order || {};
+        // The address, the codes and the items come from the SAME result — the
+        // mock answers each question from the field that answers it, and from
+        // nothing else (an absent field is said out loud, never filled in).
+        if (ASKS_ADDRESS.test(lastUser)) {
+          const a = o.shipping_address;
+          if (!a || !(a.address1 || a.city)) return say(`i can't see a shipping address on ${o.name}`);
+          const street = [a.name, a.address1, a.address2].filter(Boolean).join(', ');
+          const region = [a.city, a.province, a.zip].filter(Boolean).join(' ');
+          return say(`${o.name} ships to ${street}`.trim() + (region ? `\n${region}` : ''));
+        }
+        if (ASKS_CODE.test(lastUser)) {
+          const codes = o.discount_codes;
+          if (codes == null) return say(`i can't see the codes on ${o.name} right now`);
+          if (!codes.length) return say(`no code on ${o.name} — it went through at full price`);
+          return say(`yep — ${codes.join(', ')} was applied on ${o.name}`);
+        }
+        if (ASKS_ITEMS.test(lastUser)) {
+          const items = o.line_items || [];
+          if (!items.length) return say(`i can't see the items on ${o.name} right now`);
+          return say(`${o.name}: ${items.map((i) => `${i.quantity}x ${String(i.title).toLowerCase()}`).join(', ')}`);
+        }
+        if (!order.shipment) return say(`${o.name} is paid and being packed — no tracking scan yet`);
         const sh = order.shipment;
         const where = sh.latest_scan?.city ? ` — last scan ${sh.latest_scan.city.toLowerCase()}` : '';
         const eta = sh.estimated_delivery ? `, eta ${sh.estimated_delivery}` : '';
-        return say(`${order.order.name} is ${String(sh.status).replace(/_/g, ' ')}${where}${eta}\n${sh.tracking_url || ''}`.trim());
+        return say(`${o.name} is ${String(sh.status).replace(/_/g, ' ')}${where}${eta}\n${sh.tracking_url || ''}`.trim());
       }
       // real cart checkout urls have a /cart/c/<id> path.
       const checkout = text.match(/https?:\/\/[^\s"'\\]*\/cart\/c\/[^\s"'\\]*/i);
@@ -121,10 +161,19 @@ const mockDriver = {
 
     // Round 1: pick a tool from the user's intent. A cart ask starts with a
     // catalog search (we need a variant id) and chains to update_cart above.
-    // Shipment questions go FIRST: "where's my order" and "has it shipped" both
-    // contain words the cart and policy branches below would otherwise grab.
-    if (/where.{0,12}(my |the )?(order|package|parcel)|track(ing)?\b|shipped yet|has it shipped|delivery status|when.{0,20}(arrive|get here|delivered)/.test(lastUser)
-      && find('order_status')) return call(find('order_status'), {});
+    // Asking for a human goes FIRST of all — "i want a real person about my
+    // broken order" is a complaint, not a shopping question, and every branch
+    // below would happily read it as one.
+    if (WANTS_HUMAN.test(lastUser) && find('escalate_to_human')) {
+      return call(find('escalate_to_human'), {
+        question: String(messages[lastUserIdx]?.content || '').slice(0, 200),
+        reason: 'customer asked for a person',
+      });
+    }
+    // Order questions next: "where's my order", "has it shipped", "did i use a
+    // code" and "what address do you have" all contain words the cart, discount
+    // and policy branches below would otherwise grab.
+    if (isOrderQuestion(lastUser) && find('order_status')) return call(find('order_status'), {});
     if (/discount|code|deal/.test(lastUser) && find('issue_discount')) return call(find('issue_discount'), {});
     if (/cart|buy|checkout|order/.test(lastUser) && find('catalog')) {
       // resolve "it" the way a real model would: from the thread's last ask

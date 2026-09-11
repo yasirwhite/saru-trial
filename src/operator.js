@@ -10,6 +10,7 @@
 import { config } from './config.js';
 import { appendMessage } from './store/db.js';
 import { withinMessagingWindow } from './flows/dm-reply.js';
+import { markAnswered } from './flows/escalation.js';
 import { ensureDiscount } from './shopify/discounts.js';
 import { sendDm } from './instagram/send.js';
 import { trace } from './sim/trace.js';
@@ -59,6 +60,10 @@ export function mountOperator(app) {
     // message in the transcript (or the portal mirror) that nobody received.
     appendMessage(id, 'assistant', body);
     appendMessage(id, 'system', HUMAN_NOTE); // 'system' rows are ours; the mirror skips them
+    // A human has now spoken in this thread, which is exactly what an open
+    // escalation flag was waiting for: it stops being work, and the courtesy
+    // dm that would have fired is cancelled.
+    markAnswered(id);
     trace('operator', `human operator → ${id}: ${body}`);
     res.json({ ok: true });
   });

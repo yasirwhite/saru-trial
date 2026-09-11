@@ -1,16 +1,20 @@
-// The shipment half of the pipeline: a Shopify fulfillment becomes an EasyPost
-// tracker, and every tracker update becomes a row the agent can quote and —
-// on the three moments that matter — one unprompted DM.
+// The shipment half of the pipeline: a Shopify fulfillment becomes a tracker on
+// whichever scan feed is live (src/shipping/provider.js picks and fails over),
+// and every tracker update becomes a row the agent can quote and — on the three
+// moments that matter — one unprompted DM. Nothing below this line knows which
+// provider it is talking to; they all hand back the same normalized shape.
 import {
   upsertShipment, getShipment, getShipmentByTracker, getShipmentByTrackingCode, getOrder,
 } from '../store/db.js';
-import { createTracker, carrierTrackingUrl } from './easypost.js';
+import { carrierTrackingUrl } from './easypost.js';
+import { registerTracker } from './provider.js';
 import { sendMilestoneDm } from '../flows/shipment-dm.js';
 import { trace } from '../sim/trace.js';
 
-// The only statuses worth interrupting someone for. Everything else EasyPost
-// reports (pre_transit, available_for_pickup, return_to_sender, failure,
-// unknown) updates the row silently and waits to be asked about.
+// The only statuses worth interrupting someone for. Everything else a feed
+// reports (pre_transit, available_for_pickup, return_to_sender, attempt_fail,
+// exception, expired, unknown) updates the row silently and waits to be asked
+// about — an "exception" is a real answer, but it is not a celebration.
 const MILESTONES = {
   in_transit: 'in_transit',
   out_for_delivery: 'out_for_delivery',
@@ -50,29 +54,33 @@ export async function ingestFulfillment(payload = {}, { simulated = false } = {}
   }
 
   try {
-    const tracker = await createTracker(code, carrier);
+    // The chain picks the feed (aftership → easypost → simulated) and fails
+    // over on its own; what comes back always has the same shape, plus the name
+    // of whoever actually took it.
+    const tracker = await registerTracker(code, carrier);
     if (tracker) {
       upsertShipment(id, {
         tracker_id: tracker.id,
+        provider: tracker.provider,
         carrier: tracker.carrier || carrier,
         status: tracker.status || known?.status || 'pre_transit',
         est_delivery_date: tracker.est_delivery_date,
         tracking_url: tracker.public_url || shopUrl || carrierTrackingUrl(tracker.carrier || carrier, code),
       });
-      trace('shipment', `easypost tracker ${tracker.id} watching ${code}${tracker.simulated ? ' (simulated)' : ''}`);
+      trace('shipment', `${tracker.provider} tracker ${tracker.id} watching ${code}${tracker.simulated ? ' (simulated)' : ''}`);
     }
   } catch (err) {
     // A tracker we failed to create is a shipment we can't narrate — but the
     // order and the tracking number are already stored, so the agent can still
     // answer with what Shopify told us. Never throw back at the webhook.
-    trace('error', `easypost tracker create failed for ${code}: ${err.message}`);
+    trace('error', `tracker create failed for ${code}: ${err.message}`);
   }
   return getShipment(id);
 }
 
 // The single write path for tracker truth. `t` is ALWAYS a normalized tracker
-// that came from the EasyPost API (or, credential-free, from a loopback
-// simulation) — never an unverified webhook body.
+// that came from a provider's API — AfterShip or EasyPost — or, credential-free,
+// from a loopback simulation. Never an unverified webhook body.
 export async function applyTracker(t = {}) {
   const row = (t.id && getShipmentByTracker(t.id))
     || (t.tracking_code && getShipmentByTrackingCode(t.tracking_code))
@@ -88,6 +96,10 @@ export async function applyTracker(t = {}) {
   const prev = row.status || null;
   upsertShipment(row.id, {
     status: t.status,
+    // A package can change hands mid-flight: when a feed dies, the chain
+    // re-registers the same tracking number elsewhere and the new owner is
+    // recorded here, so the next webhook re-reads from the right API.
+    provider: t.provider,
     est_delivery_date: t.est_delivery_date,
     carrier: t.carrier || row.carrier,
     tracking_url: t.public_url || row.tracking_url || carrierTrackingUrl(t.carrier || row.carrier, row.tracking_code),

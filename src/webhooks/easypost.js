@@ -5,8 +5,10 @@
 // tracker from the EasyPost API. The API's answer is the only thing written to
 // a shipment row, so a forged event can at worst make us re-read a tracker we
 // already own.
-import { easypostEnabled, fetchTracker, normalizeTracker } from '../shipping/easypost.js';
+import { easypostEnabled, normalizeTracker } from '../shipping/easypost.js';
+import { refetchTracker } from '../shipping/provider.js';
 import { applyTracker } from '../shipping/shipments.js';
+import { getShipmentByTracker } from '../store/db.js';
 import { isLocalRequest } from './local.js';
 import { trace } from '../sim/trace.js';
 
@@ -25,15 +27,27 @@ export function mountEasypostWebhooks(app) {
 
     try {
       if (easypostEnabled()) {
+        // Routed through the provider chain rather than straight at EasyPost:
+        // if this key has been revoked or throttled, the same tracking NUMBER
+        // is re-registered on the next live feed instead of the package going
+        // dark. The re-read (from whichever feed answers) IS the verification.
+        const row = getShipmentByTracker(id);
         let tracker;
         try {
-          tracker = await fetchTracker(id); // the re-read IS the verification
+          tracker = await refetchTracker(row?.provider || 'easypost', id, {
+            trackingCode: row?.tracking_code || null,
+            carrier: row?.carrier || null,
+          });
         } catch (err) {
           trace('error', `easypost re-fetch of ${id} failed — event dropped rather than trusted: ${err.message}`);
           return res.sendStatus(502);
         }
+        if (!tracker) {
+          trace('error', `easypost re-fetch of ${id} returned nothing — no live feed could confirm it, event dropped`);
+          return res.sendStatus(502);
+        }
         await applyTracker(tracker);
-        return res.json({ ok: true, tracker: id, source: 'api' });
+        return res.json({ ok: true, tracker: tracker.id || id, provider: tracker.provider, source: 'api' });
       }
 
       // No API key: there is nothing to re-read against, so the only payload we

@@ -5,6 +5,7 @@
 import { config } from '../config.js';
 import { getThread, appendMessage, setCollected, getCollected } from '../store/db.js';
 import { ensureDiscount } from '../shopify/discounts.js';
+import { rematchStoredOrders } from '../shopify/order-details.js';
 import { buildFeaturedLink } from '../shopify/permalink.js';
 import { activeWorkflow } from './workflow-settings.js';
 import { trace } from '../sim/trace.js';
@@ -55,6 +56,13 @@ export async function handleGateReply(igsid, text) {
   setCollected(igsid, awaiting, value);
   setCollected(igsid, '_awaiting', '');
   trace('gate', `${awaiting} ${value} captured for ${igsid}`);
+
+  // The contact detail we just captured is the whole join between a checkout
+  // and this conversation — so run it BACKWARDS immediately. Orders already in
+  // the table (placed before we ever had their number, or before the store's
+  // webhooks existed) link right now instead of waiting for the customer to
+  // order again just so a webhook can do it. Never fatal to the gate.
+  try { rematchStoredOrders(igsid); } catch (err) { trace('error', `order re-match after ${awaiting} capture failed: ${err.message}`); }
 
   const d = config.promoCode
     ? { code: config.promoCode, percent: config.discountPercent }

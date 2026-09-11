@@ -50,13 +50,31 @@ export function normalizeTracker(t = {}) {
   };
 }
 
+// The credential-free tracker, as a function: the provider chain
+// (src/shipping/provider.js) uses this as its terminal driver, so a simulated
+// tracker looks identical whether it came from "no keys configured at all" or
+// "every live feed just refused us". `reason` is what the trace says happened.
+export function simulatedTracker(trackingCode, carrier, reason = 'EASYPOST_API_KEY unset') {
+  const id = simTrackerId(trackingCode);
+  trace('easypost', `${reason} — tracker for ${trackingCode} simulated locally as ${id}, no api call made`);
+  return normalizeTracker({ id, status: 'pre_transit', carrier: carrier || null, tracking_code: trackingCode, simulated: true });
+}
+
 async function easypost(path, init = {}) {
   const res = await fetch(`${API}${path}`, {
     ...init,
     headers: { 'Content-Type': 'application/json', Authorization: authHeader(), ...(init.headers || {}) },
   });
   const body = await res.text();
-  if (!res.ok) throw new Error(`easypost ${path} ${res.status}: ${body.slice(0, 300)}`);
+  if (!res.ok) {
+    // The status rides on the error: the provider chain tells "this key is
+    // finished" (401/403/429 → fail the whole feed over) apart from "this one
+    // package is bad" (everything else → this shipment's problem alone).
+    const err = new Error(`easypost ${path} ${res.status}: ${body.slice(0, 300)}`);
+    err.status = res.status;
+    err.provider = 'easypost';
+    throw err;
+  }
   return JSON.parse(body);
 }
 
@@ -64,11 +82,7 @@ async function easypost(path, init = {}) {
 // event on every new scan (see src/webhooks/easypost.js).
 export async function createTracker(trackingCode, carrier) {
   if (!trackingCode) return null;
-  if (!easypostEnabled()) {
-    const id = simTrackerId(trackingCode);
-    trace('easypost', `EASYPOST_API_KEY unset — tracker for ${trackingCode} simulated locally as ${id}, no api call made`);
-    return normalizeTracker({ id, status: 'pre_transit', carrier: carrier || null, tracking_code: trackingCode, simulated: true });
-  }
+  if (!easypostEnabled()) return simulatedTracker(trackingCode, carrier);
   const json = await easypost('/trackers', {
     method: 'POST',
     body: JSON.stringify({ tracker: { tracking_code: trackingCode, carrier: carrier || undefined } }),

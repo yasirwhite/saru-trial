@@ -12,6 +12,9 @@
 //                     shortcut for when you don't want to retype a contact
 //   --carrier <name>  default USPS
 //   --code   <track>  tracking number      (default a generated one)
+//   --discount <code> the code used at checkout (default QRWELCOME10)
+//   --no-code         checkout used NO discount code — the honest "no, you
+//                     didn't use one" answer, which is a real answer too
 //   --fast            no delays between steps
 //
 // Every POST goes out with X-Saru-Simulated: 1 from loopback, which is the ONLY
@@ -40,6 +43,17 @@ const orderId = String(stamp);
 const orderName = `#${1000 + (stamp % 9000)}`;
 const fulfillmentId = `${stamp}1`;
 const trackerId = simTrackerId(code);
+// The order detail the customer asks about later ("did i use the qr code?",
+// "what address do you have on file?") — the same keys a real orders/create
+// carries, so the concierge answers from stored facts, not from this script.
+const discountCode = flag('no-code') ? null : (arg('discount') || 'QRWELCOME10');
+const shippingAddress = {
+  first_name: 'Maya', last_name: 'Ruiz',
+  address1: '812 Ocean Park Blvd', address2: 'apt 4',
+  city: 'Santa Monica', province: 'California', province_code: 'CA',
+  zip: '90405', country: 'United States', country_code: 'US', phone,
+};
+const lineItems = [{ title: 'Cloud Hoodie', variant_title: 'M / bone', quantity: 1, price: '68.00' }];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, fast ? 0 : ms));
 
@@ -93,6 +107,12 @@ show('orders/create', await post('/webhooks/shopify', {
   financial_status: 'paid',
   created_at: new Date(stamp).toISOString(),
   customer: { email, phone },
+  // An EMPTY array is deliberate under --no-code: it says "no code was used",
+  // which the concierge answers plainly. Omitting the key would instead mean
+  // "we never looked" and send it to the Admin API for the real answer.
+  discount_codes: discountCode ? [{ code: discountCode, amount: '13.60', type: 'percentage' }] : [],
+  shipping_address: shippingAddress,
+  line_items: lineItems,
   // simulation-only: honored solely because this request is local + simulated
   _saru_igsid: igsid || undefined,
 }, { 'X-Shopify-Topic': 'orders/create' }));
@@ -139,4 +159,8 @@ for (const [i, scan] of SCANS.entries()) {
 
 console.log(`\ndone. the thread should now hold "on its way", "out for delivery" and a thank-you dm`);
 console.log(`(subject to the 24h window and human-takeover rules), and asking "where's my order?"`);
-console.log(`in the dms answers with the ${SCANS[SCANS.length - 1].city} scan.\n`);
+console.log(`in the dms answers with the ${SCANS[SCANS.length - 1].city} scan.`);
+console.log('the same order also answers "what address do you have on file?" ' +
+  `(${shippingAddress.city}), "did i use the qr code?" ` +
+  `(${discountCode ? discountCode : 'no — no code was used'}) and "what did i order?" ` +
+  `(${lineItems[0].title.toLowerCase()}).\n`);

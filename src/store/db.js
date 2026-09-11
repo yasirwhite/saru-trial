@@ -35,6 +35,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS orders (
     id TEXT PRIMARY KEY, name TEXT, email TEXT, phone TEXT,
     total TEXT, currency TEXT, financial_status TEXT, placed_at TEXT,
+    discount_codes TEXT, shipping_address TEXT, line_items TEXT,
     igsid TEXT, simulated INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);
   CREATE TABLE IF NOT EXISTS shipments (
     id TEXT PRIMARY KEY, order_id TEXT NOT NULL,
@@ -49,6 +50,30 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS shipments_order ON shipments (order_id);
   CREATE INDEX IF NOT EXISTS shipments_tracker ON shipments (tracker_id);
 `);
+
+// Migrations. CREATE TABLE above is what a FRESH install gets; a database that
+// predates a column catches up here. Guarded by table_info, so this runs on
+// every boot and does nothing on all but the first.
+function addColumn(table, column, decl) {
+  const has = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+  if (!has) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
+    console.log(`[db] migrated: ${table}.${column} added`);
+  }
+}
+// Order detail, stored as JSON text: the codes used at checkout (an EMPTY array
+// is a real answer — "no code was used" — and must not be confused with NULL,
+// which means we have never looked), the shipping address, and a line-item
+// summary. Orders ingested before these columns existed have NULL and are
+// hydrated from the Admin API on demand (src/shopify/order-details.js).
+addColumn('orders', 'discount_codes', 'TEXT');
+addColumn('orders', 'shipping_address', 'TEXT');
+addColumn('orders', 'line_items', 'TEXT');
+// WHICH scan feed minted this shipment's tracker id — 'aftership', 'easypost'
+// or 'simulated'. A tracker id is only meaningful to the provider that issued
+// it, so a webhook has to know who to re-read from; and when a feed goes down,
+// this is what says which packages need re-registering elsewhere.
+addColumn('shipments', 'provider', 'TEXT');
 
 // Returns true the FIRST time an event id is seen, false on any redelivery.
 // INSERT OR IGNORE makes this atomic — safe even if Meta delivers twice at once.
@@ -172,7 +197,8 @@ export const purgeSimulatedDiscounts = () =>
 // shape as upsertThread) because two different sources touch a row: the
 // orders/create webhook writes the customer facts, the matcher writes igsid,
 // and neither may blank what the other stored.
-const ORDER_COLS = ['name', 'email', 'phone', 'total', 'currency', 'financial_status', 'placed_at', 'igsid', 'simulated'];
+const ORDER_COLS = ['name', 'email', 'phone', 'total', 'currency', 'financial_status', 'placed_at',
+  'discount_codes', 'shipping_address', 'line_items', 'igsid', 'simulated'];
 export function upsertOrder(id, fields = {}) {
   const key = String(id);
   db.prepare('INSERT OR IGNORE INTO orders (id, created_at) VALUES (?, ?)').run(key, Date.now());
@@ -204,7 +230,17 @@ export function findThreadByContact({ email = null, phone = null } = {}) {
   return rows.find((r) => r.field === 'email') || rows[0] || null;
 }
 
-const SHIPMENT_COLS = ['order_id', 'tracking_code', 'carrier', 'tracking_url', 'tracker_id',
+// The same join as findThreadByContact, run from the other side: orders that
+// arrived BEFORE this customer ever handed us a contact detail sit unlinked
+// with nothing to match against. The moment the gate captures an email or a
+// phone, this finds them. A NULL argument matches nothing (SQL, not a bug).
+export const findUnlinkedOrdersByContact = ({ email = null, phone = null } = {}) =>
+  db.prepare(`
+    SELECT * FROM orders
+    WHERE igsid IS NULL AND (email = ? OR phone = ?)
+    ORDER BY created_at DESC`).all(email, phone);
+
+const SHIPMENT_COLS = ['order_id', 'tracking_code', 'carrier', 'tracking_url', 'tracker_id', 'provider',
   'status', 'est_delivery_date', 'last_message', 'last_city', 'last_state', 'last_time', 'checkpoints'];
 export function upsertShipment(id, fields = {}) {
   const key = String(id);

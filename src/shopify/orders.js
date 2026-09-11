@@ -5,6 +5,7 @@
 // a checkout into a conversation the concierge can speak to.
 import { extractPhone } from '../flows/phone-gate.js';
 import { upsertOrder, getOrder, linkOrderToThread, findThreadByContact, setCollected } from '../store/db.js';
+import { normalizeAddress } from './order-details.js';
 import { trace } from '../sim/trace.js';
 
 // Shopify scatters contact info across the order, the customer and both
@@ -14,6 +15,22 @@ import { trace } from '../sim/trace.js';
 export function normalizeOrder(o = {}) {
   const email = String(o.email || o.contact_email || o.customer?.email || '').trim().toLowerCase() || null;
   const rawPhone = o.phone || o.customer?.phone || o.shipping_address?.phone || o.billing_address?.phone || '';
+  // The three detail fields are stored as JSON text, and ABSENT (undefined) is
+  // not the same as EMPTY: a payload that carries `discount_codes: []` is
+  // telling us no code was used, while a payload without the key at all leaves
+  // the column NULL for the lazy Admin-API backfill to fill in later.
+  // upsertOrder skips nulls, so a thin payload can never blank a fat one.
+  const codes = Array.isArray(o.discount_codes)
+    ? o.discount_codes.map((d) => (typeof d === 'string' ? d : d?.code)).filter(Boolean)
+    : null;
+  // Shipping only — a billing address is not "the address on file" for a
+  // package, and answering with one would be a confident wrong answer.
+  const address = normalizeAddress(o.shipping_address);
+  const items = Array.isArray(o.line_items)
+    ? o.line_items.slice(0, 10)
+      .map((li) => ({ title: li.title || li.name || null, quantity: li.quantity ?? 1 }))
+      .filter((li) => li.title)
+    : null;
   return {
     id: String(o.id ?? ''),
     name: o.name || (o.order_number != null ? `#${o.order_number}` : null),
@@ -23,6 +40,9 @@ export function normalizeOrder(o = {}) {
     currency: o.currency || null,
     financial_status: o.financial_status || null,
     placed_at: o.created_at || null,
+    discount_codes: codes ? JSON.stringify(codes) : null,
+    shipping_address: address ? JSON.stringify(address) : null,
+    line_items: items ? JSON.stringify(items) : null,
   };
 }
 
@@ -33,7 +53,11 @@ export function ingestOrder(payload, { simulated = false, igsidHint = null } = {
     return null;
   }
   upsertOrder(order.id, { ...order, simulated: simulated ? 1 : 0 });
-  trace('order', `order ${order.name || order.id} stored — ${order.email || 'no email'} / ${order.phone || 'no phone'}${order.total ? ` / ${order.total}` : ''}${simulated ? ' (simulated)' : ''}`);
+  const detail = [
+    order.discount_codes && `codes ${JSON.parse(order.discount_codes).join(',') || 'none'}`,
+    order.shipping_address && `ships to ${JSON.parse(order.shipping_address).city || 'address on file'}`,
+  ].filter(Boolean).join(' / ');
+  trace('order', `order ${order.name || order.id} stored — ${order.email || 'no email'} / ${order.phone || 'no phone'}${order.total ? ` / ${order.total}` : ''}${detail ? ` / ${detail}` : ''}${simulated ? ' (simulated)' : ''}`);
   matchOrderToThread(order, { igsidHint: simulated ? igsidHint : null });
   return getOrder(order.id);
 }
